@@ -2761,35 +2761,99 @@ pub async fn save_pasted_image(
     // Offload CPU-heavy image processing to a blocking thread
     let result = tokio::task::spawn_blocking(move || -> Result<SaveImageResponse, String> {
         let (processed_data, final_ext) = process_image(&image_data, &original_ext)?;
-
-        let timestamp = now();
-        let short_uuid = &Uuid::new_v4().to_string()[..8];
-        let filename = format!("image-{timestamp}-{short_uuid}.{final_ext}");
-        let file_path = images_dir.join(&filename);
-
-        // Write file atomically (temp file + rename)
-        let temp_path = file_path.with_extension("tmp");
-        std::fs::write(&temp_path, &processed_data)
-            .map_err(|e| format!("Failed to write image file: {e}"))?;
-
-        std::fs::rename(&temp_path, &file_path)
-            .map_err(|e| format!("Failed to finalize image file: {e}"))?;
-
-        let path_str = file_path
-            .to_str()
-            .ok_or_else(|| "Failed to convert path to string".to_string())?
-            .to_string();
-
-        log::trace!("Image saved to: {path_str}");
-
-        Ok(SaveImageResponse {
-            id: Uuid::new_v4().to_string(),
-            filename,
-            path: path_str,
-        })
+        save_image_to_disk(&images_dir, &processed_data, &final_ext)
     })
     .await
     .map_err(|e| format!("Image processing task failed: {e}"))??;
+
+    Ok(result)
+}
+
+/// Save processed image data to disk with atomic write (temp file + rename).
+/// Shared by save_pasted_image, read_clipboard_image, and save_dropped_image.
+fn save_image_to_disk(
+    images_dir: &std::path::Path,
+    data: &[u8],
+    ext: &str,
+) -> Result<SaveImageResponse, String> {
+    let timestamp = now();
+    let short_uuid = &Uuid::new_v4().to_string()[..8];
+    let filename = format!("image-{timestamp}-{short_uuid}.{ext}");
+    let file_path = images_dir.join(&filename);
+
+    let temp_path = file_path.with_extension("tmp");
+    std::fs::write(&temp_path, data)
+        .map_err(|e| format!("Failed to write image file: {e}"))?;
+
+    std::fs::rename(&temp_path, &file_path)
+        .map_err(|e| format!("Failed to finalize image file: {e}"))?;
+
+    let path_str = file_path
+        .to_str()
+        .ok_or_else(|| "Failed to convert path to string".to_string())?
+        .to_string();
+
+    log::trace!("Image saved to: {path_str}");
+
+    Ok(SaveImageResponse {
+        id: Uuid::new_v4().to_string(),
+        filename,
+        path: path_str,
+    })
+}
+
+/// Read an image from the native system clipboard (fallback for Linux/WebKitGTK).
+///
+/// WebKitGTK doesn't expose image/* clipboard items via the Web API,
+/// so this command reads the clipboard natively using arboard.
+/// Returns None if no image is available in the clipboard.
+#[tauri::command]
+pub async fn read_clipboard_image(
+    app: AppHandle,
+) -> Result<Option<SaveImageResponse>, String> {
+    log::trace!("Attempting to read image from native clipboard");
+
+    let images_dir = get_images_dir(&app)?;
+
+    let result = tokio::task::spawn_blocking(move || -> Result<Option<SaveImageResponse>, String> {
+        let mut clipboard = arboard::Clipboard::new()
+            .map_err(|e| format!("Failed to access clipboard: {e}"))?;
+
+        let image_data = match clipboard.get_image() {
+            Ok(data) => data,
+            Err(arboard::Error::ContentNotAvailable) => return Ok(None),
+            Err(e) => return Err(format!("Failed to read clipboard image: {e}")),
+        };
+
+        // Guard against absurdly large clipboard images (>50 megapixels ≈ 200MB RGBA)
+        const MAX_CLIPBOARD_PIXELS: usize = 50_000_000;
+        if image_data.width * image_data.height > MAX_CLIPBOARD_PIXELS {
+            return Err(format!(
+                "Clipboard image too large: {}x{}",
+                image_data.width, image_data.height
+            ));
+        }
+
+        // Convert RGBA ImageData to PNG bytes
+        let rgba = image::RgbaImage::from_raw(
+            image_data.width as u32,
+            image_data.height as u32,
+            image_data.bytes.into_owned(),
+        )
+        .ok_or_else(|| "Failed to create image from clipboard data".to_string())?;
+
+        let mut png_buf = std::io::Cursor::new(Vec::new());
+        rgba.write_to(&mut png_buf, image::ImageFormat::Png)
+            .map_err(|e| format!("Failed to encode clipboard image as PNG: {e}"))?;
+
+        let png_bytes = png_buf.into_inner();
+
+        // Process through existing pipeline (resize, PNG→JPEG conversion)
+        let (processed_data, final_ext) = process_image(&png_bytes, "png")?;
+        Ok(Some(save_image_to_disk(&images_dir, &processed_data, &final_ext)?))
+    })
+    .await
+    .map_err(|e| format!("Clipboard image task failed: {e}"))??;
 
     Ok(result)
 }
@@ -2854,32 +2918,7 @@ pub async fn save_dropped_image(
         let source_data =
             std::fs::read(&source).map_err(|e| format!("Failed to read source file: {e}"))?;
         let (processed_data, final_ext) = process_image(&source_data, &normalized_ext)?;
-
-        let timestamp = now();
-        let short_uuid = &Uuid::new_v4().to_string()[..8];
-        let filename = format!("image-{timestamp}-{short_uuid}.{final_ext}");
-        let dest_path = images_dir.join(&filename);
-
-        // Write processed file atomically (temp file + rename)
-        let temp_path = dest_path.with_extension("tmp");
-        std::fs::write(&temp_path, &processed_data)
-            .map_err(|e| format!("Failed to write image file: {e}"))?;
-
-        std::fs::rename(&temp_path, &dest_path)
-            .map_err(|e| format!("Failed to finalize image file: {e}"))?;
-
-        let path_str = dest_path
-            .to_str()
-            .ok_or_else(|| "Failed to convert path to string".to_string())?
-            .to_string();
-
-        log::trace!("Dropped image saved to: {path_str}");
-
-        Ok(SaveImageResponse {
-            id: Uuid::new_v4().to_string(),
-            filename,
-            path: path_str,
-        })
+        save_image_to_disk(&images_dir, &processed_data, &final_ext)
     })
     .await
     .map_err(|e| format!("Image processing task failed: {e}"))??;

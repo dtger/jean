@@ -2257,6 +2257,7 @@ pub fn run() {
             chat::mark_plan_approved,
             chat::approve_codex_command,
             // Chat commands - Image handling
+            chat::read_clipboard_image,
             chat::save_pasted_image,
             chat::save_dropped_image,
             chat::delete_pasted_image,
