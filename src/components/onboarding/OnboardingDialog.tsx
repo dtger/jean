@@ -23,7 +23,6 @@ import {
   useOpenCodeCliAuth,
 } from '@/services/opencode-cli'
 import { useGhCliSetup, useGhCliAuth } from '@/services/gh-cli'
-import { escapeCliCommand } from '@/lib/shell-escape'
 import {
   SetupState,
   InstallingState,
@@ -695,24 +694,19 @@ function OnboardingDialogContent() {
     opencodeSetup.status?.installed && step === 'opencode-setup'
   const isGhReinstall = ghSetup.status?.installed && step === 'gh-setup'
 
-  const claudeLoginCommand = claudeSetup.status?.path
-    ? escapeCliCommand(
-        claudeSetup.status.path,
-        claudeSetup.status.supports_auth_command ? 'auth login' : undefined
-      )
-    : ''
+  const claudeLoginCommand = claudeSetup.status?.path ?? ''
+  const claudeLoginArgs = claudeSetup.status?.supports_auth_command
+    ? ['auth', 'login']
+    : undefined
 
-  const codexLoginCommand = codexSetup.status?.path
-    ? escapeCliCommand(codexSetup.status.path, 'login')
-    : ''
+  const codexLoginCommand = codexSetup.status?.path ?? ''
+  const codexLoginArgs = ['login']
 
-  const opencodeLoginCommand = opencodeSetup.status?.path
-    ? escapeCliCommand(opencodeSetup.status.path, 'auth login')
-    : ''
+  const opencodeLoginCommand = opencodeSetup.status?.path ?? ''
+  const opencodeLoginArgs = ['auth', 'login']
 
-  const ghLoginCommand = ghSetup.status?.path
-    ? escapeCliCommand(ghSetup.status.path, 'auth login')
-    : ''
+  const ghLoginCommand = ghSetup.status?.path ?? ''
+  const ghLoginArgs = ['auth', 'login']
 
   const getDialogContent = () => {
     if (step === 'backend-select') {
@@ -914,6 +908,7 @@ function OnboardingDialogContent() {
               cliName="Claude CLI"
               terminalId={claudeLoginTerminalId}
               command={claudeLoginCommand}
+              commandArgs={claudeLoginArgs}
               onComplete={handleClaudeLoginComplete}
               onRetry={handleClaudeLoginRetry}
             />
@@ -922,6 +917,7 @@ function OnboardingDialogContent() {
               cliName="Codex CLI"
               terminalId={codexLoginTerminalId}
               command={codexLoginCommand}
+              commandArgs={codexLoginArgs}
               onComplete={handleCodexLoginComplete}
               onRetry={handleCodexLoginRetry}
             />
@@ -930,6 +926,7 @@ function OnboardingDialogContent() {
               cliName="OpenCode CLI"
               terminalId={opencodeLoginTerminalId}
               command={opencodeLoginCommand}
+              commandArgs={opencodeLoginArgs}
               onComplete={handleOpencodeLoginComplete}
               onRetry={handleOpencodeLoginRetry}
             />
@@ -938,6 +935,7 @@ function OnboardingDialogContent() {
               cliName="GitHub CLI"
               terminalId={ghLoginTerminalId}
               command={ghLoginCommand}
+              commandArgs={ghLoginArgs}
               onComplete={handleGhLoginComplete}
               onRetry={handleGhLoginRetry}
             />

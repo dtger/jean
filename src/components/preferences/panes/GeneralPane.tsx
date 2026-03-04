@@ -1,6 +1,5 @@
 import React, { useState, useCallback, useMemo, type FC } from 'react'
 import { invoke } from '@/lib/transport'
-import { escapeCliCommand } from '@/lib/shell-escape'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Loader2, ChevronDown, Check, ChevronsUpDown } from 'lucide-react'
@@ -482,13 +481,8 @@ export const GeneralPane: React.FC = () => {
     }
 
     // Not authenticated, open login modal
-    openCliLoginModal(
-      'claude',
-      escapeCliCommand(
-        cliStatus.path,
-        cliStatus.supports_auth_command ? 'auth login' : undefined
-      )
-    )
+    const args = cliStatus.supports_auth_command ? ['auth', 'login'] : undefined
+    openCliLoginModal('claude', cliStatus.path, args)
   }, [
     cliStatus?.path,
     cliStatus?.supports_auth_command,
@@ -517,7 +511,7 @@ export const GeneralPane: React.FC = () => {
     }
 
     // Not authenticated, open login modal
-    openCliLoginModal('gh', escapeCliCommand(ghStatus.path, 'auth login'))
+    openCliLoginModal('gh', ghStatus.path, ['auth', 'login'])
   }, [ghStatus?.path, openCliLoginModal, queryClient])
 
   const handleCodexLogin = useCallback(async () => {
@@ -541,7 +535,7 @@ export const GeneralPane: React.FC = () => {
     }
 
     // Not authenticated, open login modal
-    openCliLoginModal('codex', escapeCliCommand(codexStatus.path, 'login'))
+    openCliLoginModal('codex', codexStatus.path, ['login'])
   }, [codexStatus?.path, openCliLoginModal, queryClient])
 
   const handleOpenCodeLogin = useCallback(async () => {
@@ -564,10 +558,7 @@ export const GeneralPane: React.FC = () => {
       setCheckingOpenCodeAuth(false)
     }
 
-    openCliLoginModal(
-      'opencode',
-      escapeCliCommand(opencodeStatus.path, 'auth login')
-    )
+    openCliLoginModal('opencode', opencodeStatus.path, ['auth', 'login'])
   }, [opencodeStatus?.path, openCliLoginModal, queryClient])
 
   const claudeStatusDescription = cliStatus?.installed

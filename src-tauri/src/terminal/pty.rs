@@ -15,6 +15,10 @@ fn get_user_shell() -> String {
 }
 
 /// Spawn a terminal, optionally running a command
+///
+/// When `command_args` is provided alongside `command`, the binary at `command`
+/// is invoked directly with the given args (no shell wrapper). This avoids
+/// argument-parsing issues on Windows where PowerShell mangles quoted paths.
 pub fn spawn_terminal(
     app: &AppHandle,
     terminal_id: String,
@@ -22,10 +26,14 @@ pub fn spawn_terminal(
     cols: u16,
     rows: u16,
     command: Option<String>,
+    command_args: Option<Vec<String>>,
 ) -> Result<(), String> {
     log::trace!("Spawning terminal {terminal_id} at {worktree_path}");
     if let Some(ref cmd) = command {
         log::trace!("Running command: {cmd}");
+    }
+    if let Some(ref args) = command_args {
+        log::trace!("Command args: {args:?}");
     }
 
     let pty_system = native_pty_system();
@@ -46,20 +54,29 @@ pub fn spawn_terminal(
 
     // Build command - either run a specific command or start interactive shell
     let mut cmd = if let Some(ref run_command) = command {
-        // Run the command in shell; process exits naturally when done
-        let mut c = CommandBuilder::new(&shell);
-        #[cfg(windows)]
-        {
-            c.arg("-Command");
-            c.arg(run_command.to_string());
+        if let Some(ref args) = command_args {
+            // Direct binary invocation — bypass shell to avoid argument mangling
+            let mut c = CommandBuilder::new(run_command);
+            for arg in args {
+                c.arg(arg);
+            }
+            c
+        } else {
+            // Run the command wrapped in a shell
+            let mut c = CommandBuilder::new(&shell);
+            #[cfg(windows)]
+            {
+                c.arg("-Command");
+                c.arg(run_command.to_string());
+            }
+            #[cfg(not(windows))]
+            {
+                c.arg("-c");
+                // Note: Caller is responsible for properly quoting paths with spaces
+                c.arg(run_command);
+            }
+            c
         }
-        #[cfg(not(windows))]
-        {
-            c.arg("-c");
-            // Note: Caller is responsible for properly quoting paths with spaces
-            c.arg(run_command);
-        }
-        c
     } else {
         CommandBuilder::new(&shell)
     };

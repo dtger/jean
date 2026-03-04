@@ -231,6 +231,7 @@ export interface AuthLoginStateProps {
   cliName: string
   terminalId: string
   command: string
+  commandArgs?: string[] | null
   onComplete: () => void
   onRetry?: () => void
   onSkip?: () => void
@@ -240,6 +241,7 @@ export function AuthLoginState({
   cliName,
   terminalId,
   command,
+  commandArgs,
   onComplete,
   onRetry,
   onSkip,
@@ -256,6 +258,7 @@ export function AuthLoginState({
     worktreeId: 'cli-login',
     worktreePath: '/tmp',
     command,
+    commandArgs,
   })
 
   const containerCallbackRef = useCallback(

@@ -28,6 +28,7 @@ interface PersistentTerminal {
   worktreeId: string
   worktreePath: string
   command: string | null
+  commandArgs: string[] | null
   initialized: boolean // PTY has been started
   onStopped?: (exitCode: number | null, signal: string | null) => void
 }
@@ -49,6 +50,7 @@ export function getOrCreateTerminal(
     worktreeId: string
     worktreePath: string
     command?: string | null
+    commandArgs?: string[] | null
   }
 ): PersistentTerminal {
   const existing = instances.get(terminalId)
@@ -56,7 +58,7 @@ export function getOrCreateTerminal(
     return existing
   }
 
-  const { worktreeId, worktreePath, command = null } = options
+  const { worktreeId, worktreePath, command = null, commandArgs = null } = options
   const { setTerminalRunning } = useTerminalStore.getState()
 
   // Create xterm.js Terminal instance
@@ -160,6 +162,7 @@ export function getOrCreateTerminal(
     worktreeId,
     worktreePath,
     command,
+    commandArgs,
     initialized: false,
   }
 
@@ -201,7 +204,7 @@ export async function attachToContainer(
     return
   }
 
-  const { terminal, fitAddon, worktreePath, command, initialized } = instance
+  const { terminal, fitAddon, worktreePath, command, commandArgs, initialized } = instance
   const terminalElement = terminal.element
 
   if (!terminalElement) {
@@ -237,6 +240,7 @@ export async function attachToContainer(
           cols,
           rows,
           command,
+          commandArgs,
         }).catch(error => {
           console.error('[terminal-instances] start_terminal failed:', error)
           terminal.writeln(`\x1b[31mFailed to start terminal: ${error}\x1b[0m`)
@@ -263,7 +267,7 @@ export async function attachToContainer(
  */
 export function startHeadless(
   terminalId: string,
-  options: { worktreeId: string; worktreePath: string; command: string }
+  options: { worktreeId: string; worktreePath: string; command: string; commandArgs?: string[] | null }
 ): void {
   const instance = getOrCreateTerminal(terminalId, options)
   if (instance.initialized) return // Already started
@@ -275,6 +279,7 @@ export function startHeadless(
     cols: 80,
     rows: 24,
     command: options.command,
+    commandArgs: options.commandArgs ?? null,
   }).catch(error => {
     console.error('[terminal-instances] headless start_terminal failed:', error)
   })

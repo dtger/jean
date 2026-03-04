@@ -28,11 +28,12 @@ import { disposeTerminal, setOnStopped } from '@/lib/terminal-instances'
 
 export function CliLoginModal() {
   const [retryKey, setRetryKey] = useState(0)
-  const { isOpen, cliType, command, closeModal } = useUIStore(
+  const { isOpen, cliType, command, commandArgs, closeModal } = useUIStore(
     useShallow(state => ({
       isOpen: state.cliLoginModalOpen,
       cliType: state.cliLoginModalType,
       command: state.cliLoginModalCommand,
+      commandArgs: state.cliLoginModalCommandArgs,
       closeModal: state.closeCliLoginModal,
     }))
   )
@@ -45,6 +46,7 @@ export function CliLoginModal() {
       key={retryKey}
       cliType={cliType}
       command={command}
+      commandArgs={commandArgs}
       onClose={closeModal}
       onRetry={() => setRetryKey(k => k + 1)}
     />
@@ -54,6 +56,7 @@ export function CliLoginModal() {
 interface CliLoginModalContentProps {
   cliType: 'claude' | 'gh' | 'codex' | 'opencode' | null
   command: string
+  commandArgs: string[] | null
   onClose: () => void
   onRetry: () => void
 }
@@ -61,6 +64,7 @@ interface CliLoginModalContentProps {
 function CliLoginModalContent({
   cliType,
   command,
+  commandArgs,
   onClose,
   onRetry,
 }: CliLoginModalContentProps) {
@@ -94,6 +98,7 @@ function CliLoginModalContent({
     worktreeId: 'cli-login', // Synthetic worktreeId for CLI login terminals
     worktreePath: '/tmp', // CLI commands don't depend on cwd
     command,
+    commandArgs,
   })
 
   // Use callback ref to detect when container is mounted (Dialog uses portal)
