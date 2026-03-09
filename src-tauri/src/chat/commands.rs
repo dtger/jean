@@ -1772,7 +1772,7 @@ pub async fn send_chat_message(
             }
             Backend::Codex => {
                 // === Codex execution path ===
-                log::trace!("About to call execute_codex_detached...");
+                log::trace!("About to call execute_codex_via_server...");
 
                 // Map EffortLevel to Codex reasoning effort values
                 let codex_reasoning_effort: Option<String> =
@@ -2054,10 +2054,7 @@ pub async fn send_chat_message(
                     }
                 };
 
-                // For Codex: first message uses positional arg, resume pipes via stdin
-                let prompt = Some(thread_message.as_str());
-
-                match super::codex::execute_codex_detached(
+                match super::codex::execute_codex_via_server(
                     &thread_app,
                     &thread_session_id,
                     &thread_worktree_id,
@@ -2069,14 +2066,13 @@ pub async fn send_chat_message(
                     codex_reasoning_effort.as_deref(),
                     thread_codex_search,
                     &codex_add_dirs,
-                    prompt,
+                    &thread_message,
                     codex_instructions_file.as_deref(),
                     thread_codex_multi_agent,
                     thread_codex_max_threads,
-                    Some(make_pid_callback()),
                 ) {
-                    Ok((pid, response)) => Ok((
-                        pid,
+                    Ok(response) => Ok((
+                        0, // No PID for app-server sessions
                         UnifiedResponse {
                             content: response.content,
                             resume_id: response.thread_id,
@@ -2089,7 +2085,7 @@ pub async fn send_chat_message(
                         },
                     )),
                     Err(e) => {
-                        log::error!("execute_codex_detached FAILED: {e}");
+                        log::error!("execute_codex_via_server FAILED: {e}");
                         Err(e)
                     }
                 }
@@ -2345,11 +2341,9 @@ pub async fn send_chat_message(
         Ok(Err(e)) => {
             // Thread completed with an error — clean up all registrations.
             log::info!("[SendChat] EXIT session={session_id} reason=thread_error error={e}");
-            super::registry::clear_pending_cancel(&session_id);
+            super::registry::cleanup_session_registrations(&session_id);
             if let Some(ref flag) = opencode_cancel_flag {
-                // Only unregister if the flag wasn't already set by a cancel call
                 if !flag.load(std::sync::atomic::Ordering::SeqCst) {
-                    super::registry::unregister_cancel_flag(&session_id);
                     // Mark run as crashed so it doesn't stay in Running forever
                     if let Err(mark_err) = run_log_writer.mark_crashed() {
                         log::warn!("Failed to mark OpenCode run as crashed: {mark_err}");
@@ -2366,10 +2360,7 @@ pub async fn send_chat_message(
         }
         Err(_) => {
             log::info!("[SendChat] EXIT session={session_id} reason=thread_panic");
-            super::registry::clear_pending_cancel(&session_id);
-            if let Some(ref _flag) = opencode_cancel_flag {
-                super::registry::unregister_cancel_flag(&session_id);
-            }
+            super::registry::cleanup_session_registrations(&session_id);
             if let Err(mark_err) = run_log_writer.mark_crashed() {
                 log::warn!("Failed to mark run as crashed after thread panic: {mark_err}");
             }
@@ -2380,10 +2371,7 @@ pub async fn send_chat_message(
     };
 
     // Clear any stale pending cancel entry and unregister OpenCode cancel flag now that we have a result.
-    super::registry::clear_pending_cancel(&session_id);
-    if let Some(ref _flag) = opencode_cancel_flag {
-        super::registry::unregister_cancel_flag(&session_id);
-    }
+    super::registry::cleanup_session_registrations(&session_id);
 
     // PID is now persisted via pid_callback immediately after spawn (before tailing).
     // No need to set_pid here — it was already saved for crash recovery.
@@ -4566,7 +4554,6 @@ pub async fn resume_session(
         let worktree_id_clone = worktree_id.clone();
         let run_id_clone = run_id.clone();
         let is_codex = metadata.backend == Backend::Codex;
-        let is_plan_mode = run.execution_mode.as_deref() == Some("plan");
 
         // Spawn a task to tail the output file
         tauri::async_runtime::spawn(async move {
@@ -4582,29 +4569,19 @@ pub async fn resume_session(
 
             // Tail the output file — route by backend
             let (resume_id, usage, cancelled) = if is_codex {
-                match super::codex::tail_codex_output(
-                    &app_clone,
-                    &session_id_clone,
-                    &worktree_id_clone,
-                    &output_file,
-                    pid,
-                    is_plan_mode,
-                ) {
-                    Ok(response) => (response.thread_id, response.usage, response.cancelled),
-                    Err(e) => {
-                        log::error!("Resume Codex tail failed for run: {run_id_clone}, error: {e}");
-                        super::registry::unregister_process(&session_id_clone);
-                        if let Ok(mut writer) =
-                            RunLogWriter::resume(&app_clone, &session_id_clone, &run_id_clone)
-                        {
-                            if let Err(e) = writer.crash() {
-                                log::error!("Failed to mark run as crashed: {e}");
-                            }
-                        }
-                        emit_done(&app_clone, &session_id_clone, &worktree_id_clone);
-                        return;
+                // Codex uses app-server now — no detached process to tail.
+                // Mark as crashed; the user's next message will use thread/resume.
+                log::trace!("Codex session {session_id_clone}: no process to tail (app-server mode), marking run complete");
+                super::registry::unregister_process(&session_id_clone);
+                if let Ok(mut writer) =
+                    RunLogWriter::resume(&app_clone, &session_id_clone, &run_id_clone)
+                {
+                    if let Err(e) = writer.crash() {
+                        log::error!("Failed to mark run as crashed: {e}");
                     }
                 }
+                emit_done(&app_clone, &session_id_clone, &worktree_id_clone);
+                return;
             } else {
                 match super::claude::tail_claude_output(
                     &app_clone,
@@ -5223,11 +5200,11 @@ fn parse_codex_mcp_list_json(output: &str) -> std::collections::HashMap<String, 
 /// PermissionApproval UI during a Codex build-mode session.
 #[tauri::command]
 pub fn approve_codex_command(
-    session_id: String,
+    _session_id: String,
     rpc_id: u64,
     decision: String,
 ) -> Result<(), String> {
-    super::codex::send_approval(&session_id, rpc_id, &decision)
+    super::codex_server::send_response(rpc_id, serde_json::json!({"decision": decision}))
 }
 
 // =============================================================================

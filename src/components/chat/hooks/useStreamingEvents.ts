@@ -184,13 +184,34 @@ export default function useStreamingEvents({
       }
     })
 
+    // Buffer chunks and flush on animation frames to avoid per-chunk re-renders.
+    // Codex app-server sends very frequent deltas; without batching, each delta
+    // triggers 2 store mutations + full StreamingMessage re-render.
+    const chunkBuffer: Record<string, string> = {}
+    let chunkRafId: number | null = null
+
+    function flushChunkBuffer() {
+      chunkRafId = null
+      for (const [sid, buffered] of Object.entries(chunkBuffer)) {
+        appendStreamingContent(sid, buffered)
+        addTextBlock(sid, buffered)
+      }
+      // Clear buffer (mutate in place for perf)
+      for (const key of Object.keys(chunkBuffer)) {
+        delete chunkBuffer[key]
+      }
+    }
+
     const unlistenChunk = listen<ChunkEvent>('chat:chunk', event => {
       const { session_id, content } = event.payload
       // Ensure session is marked as sending (recovers state after reconnect/refresh)
       addSendingSession(session_id)
-      appendStreamingContent(session_id, content)
-      // Also add to content blocks for inline rendering
-      addTextBlock(session_id, content)
+      // Accumulate into buffer
+      chunkBuffer[session_id] = (chunkBuffer[session_id] ?? '') + content
+      // Schedule flush on next animation frame (coalesces all chunks in this frame)
+      if (chunkRafId === null) {
+        chunkRafId = requestAnimationFrame(flushChunkBuffer)
+      }
     })
 
     const unlistenToolUse = listen<ToolUseEvent>('chat:tool_use', event => {
@@ -282,6 +303,12 @@ export default function useStreamingEvents({
     const unlistenDone = listen<DoneEvent>('chat:done', event => {
       const sessionId = event.payload.session_id
       const worktreeId = event.payload.worktree_id
+
+      // Flush any buffered chunks so streamingContents is up to date
+      if (chunkRafId !== null) {
+        cancelAnimationFrame(chunkRafId)
+        flushChunkBuffer()
+      }
 
       console.log(`[Done] chat:done received session=${sessionId}`, { currentSending: Object.keys(useChatStore.getState().sendingSessionIds) })
 
@@ -1015,6 +1042,12 @@ export default function useStreamingEvents({
           undo_send,
         } = event.payload
 
+        // Flush any buffered chunks so streamingContents is up to date
+        if (chunkRafId !== null) {
+          cancelAnimationFrame(chunkRafId)
+          flushChunkBuffer()
+        }
+
         console.log(`[Cancelled] chat:cancelled received session=${session_id} undo_send=${undo_send}`, { currentSending: Object.keys(useChatStore.getState().sendingSessionIds) })
 
         // Capture streaming state BEFORE clearing (like chat:done does)
@@ -1358,6 +1391,11 @@ export default function useStreamingEvents({
     })
 
     return () => {
+      // Flush any buffered chunks before tearing down
+      if (chunkRafId !== null) {
+        cancelAnimationFrame(chunkRafId)
+        flushChunkBuffer()
+      }
       unlistenSending.then(f => f())
       unlistenChunk.then(f => f())
       unlistenToolUse.then(f => f())

@@ -58,6 +58,8 @@ export function useScrollManagement({
   const [areFindingsVisible, setAreFindingsVisible] = useState(true)
   // Ref for scroll timeout cleanup
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Cooldown: when user scrolls up, block handleScroll from re-setting isAtBottom for a short period
+  const userScrollUpUntilRef = useRef(0)
 
   // Cleanup scroll timeout on unmount
   useEffect(() => {
@@ -66,6 +68,32 @@ export function useScrollManagement({
         clearTimeout(scrollTimeoutRef.current)
       }
     }
+  }, [])
+
+  // Detect user scrolling up during auto-scroll and break the lock
+  useEffect(() => {
+    const viewport = scrollViewportRef.current
+    if (!viewport) return
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0) {
+        // User scrolling up — cancel auto-scroll and block re-activation for 1s
+        if (scrollTimeoutRef.current) {
+          clearTimeout(scrollTimeoutRef.current)
+          scrollTimeoutRef.current = null
+        }
+        isAutoScrollingRef.current = false
+        isAtBottomRef.current = false
+        setIsAtBottom(false)
+        userScrollUpUntilRef.current = Date.now() + 1000
+      } else if (e.deltaY > 0) {
+        // User scrolling down — clear cooldown so bottom detection works
+        userScrollUpUntilRef.current = 0
+      }
+    }
+
+    viewport.addEventListener('wheel', handleWheel, { passive: true })
+    return () => viewport.removeEventListener('wheel', handleWheel)
   }, [])
 
   // Scroll to bottom before paint when switching worktrees to prevent flash of top content
@@ -88,6 +116,12 @@ export function useScrollManagement({
     const { scrollTop, scrollHeight, clientHeight } = target
     // Consider "at bottom" if within 100px of the bottom
     const atBottom = scrollHeight - scrollTop - clientHeight < 100
+
+    // During cooldown after user scrolled up, only allow transitions to NOT-at-bottom
+    if (Date.now() < userScrollUpUntilRef.current && atBottom) {
+      return
+    }
+
     isAtBottomRef.current = atBottom
     // PERFORMANCE: Functional setState skips re-render when value hasn't changed
     setIsAtBottom(prev => (prev === atBottom ? prev : atBottom))

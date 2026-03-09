@@ -25,12 +25,27 @@ static PENDING_CANCELS: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(H
 static CANCEL_FLAGS: Lazy<Mutex<HashMap<String, Arc<AtomicBool>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
+/// Codex app-server turn registry: maps session_id → (thread_id, turn_id).
+/// Used to send `turn/interrupt` on cancellation instead of killing a process.
+static CODEX_TURN_REGISTRY: Lazy<Mutex<HashMap<String, (String, String)>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+fn lock_recover<'a, T>(mutex: &'a Mutex<T>, name: &str) -> std::sync::MutexGuard<'a, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            log::error!("[Registry] recovering poisoned mutex: {name}");
+            poisoned.into_inner()
+        }
+    }
+}
+
 /// Register a running Claude process PID for a session.
 /// Returns `false` if the session was cancelled before registration (process is killed immediately).
 pub fn register_process(session_id: String, pid: u32) -> bool {
     // Check pending cancels first
     {
-        let mut pending = PENDING_CANCELS.lock().unwrap();
+        let mut pending = lock_recover(&PENDING_CANCELS, "PENDING_CANCELS");
         log::info!(
             "[Registry] register_process session={session_id} pid={pid} pending_cancels={:?}",
             pending.iter().collect::<Vec<_>>()
@@ -46,25 +61,18 @@ pub fn register_process(session_id: String, pid: u32) -> bool {
         }
     }
 
-    let mut registry = PROCESS_REGISTRY.lock().unwrap();
-    log::info!("[Registry] Registering process pid={pid} for session={session_id}, registry_keys={:?}", registry.keys().collect::<Vec<_>>());
+    let mut registry = lock_recover(&PROCESS_REGISTRY, "PROCESS_REGISTRY");
+    log::info!(
+        "[Registry] Registering process pid={pid} for session={session_id}, registry_keys={:?}",
+        registry.keys().collect::<Vec<_>>()
+    );
     registry.insert(session_id, pid);
     true
 }
 
-/// Remove a session from the pending cancellation set.
-/// Called when send_chat_message fails before reaching register_process,
-/// to prevent stale entries in the pending set.
-pub fn clear_pending_cancel(session_id: &str) {
-    let existed = PENDING_CANCELS.lock().unwrap().remove(session_id);
-    if existed {
-        log::info!("[Registry] clear_pending_cancel session={session_id} (entry existed)");
-    }
-}
-
 /// Remove a process from the registry (called after completion or cancellation)
 pub fn unregister_process(session_id: &str) {
-    let mut registry = PROCESS_REGISTRY.lock().unwrap();
+    let mut registry = lock_recover(&PROCESS_REGISTRY, "PROCESS_REGISTRY");
     if let Some(pid) = registry.remove(session_id) {
         log::trace!("Unregistered Claude process {pid} for session: {session_id}");
     }
@@ -75,7 +83,7 @@ pub fn unregister_process(session_id: &str) {
 pub fn register_cancel_flag(session_id: String, flag: Arc<AtomicBool>) -> bool {
     // Check pending cancels: if cancel was requested before we registered, cancel immediately
     {
-        let mut pending = PENDING_CANCELS.lock().unwrap();
+        let mut pending = lock_recover(&PENDING_CANCELS, "PENDING_CANCELS");
         if pending.remove(&session_id) {
             log::warn!(
                 "Session {session_id} was cancelled before cancel flag registered, setting flag"
@@ -85,40 +93,91 @@ pub fn register_cancel_flag(session_id: String, flag: Arc<AtomicBool>) -> bool {
         }
     }
 
-    CANCEL_FLAGS.lock().unwrap().insert(session_id, flag);
+    lock_recover(&CANCEL_FLAGS, "CANCEL_FLAGS").insert(session_id, flag);
     true
 }
 
-/// Remove a session's cancel flag (called after completion).
-pub fn unregister_cancel_flag(session_id: &str) {
-    CANCEL_FLAGS.lock().unwrap().remove(session_id);
+/// Register a Codex app-server turn for a session.
+/// Returns `false` if the session was already pending cancellation.
+pub fn register_codex_turn(session_id: String, thread_id: String, turn_id: String) -> bool {
+    // Check pending cancels first
+    {
+        let mut pending = lock_recover(&PENDING_CANCELS, "PENDING_CANCELS");
+        if pending.remove(&session_id) {
+            log::warn!("Session {session_id} was cancelled before turn registered, interrupting");
+            let tid = thread_id.clone();
+            let tuid = turn_id.clone();
+            std::thread::spawn(move || {
+                let _ = super::codex_server::interrupt_turn(&tid, &tuid);
+            });
+            return false;
+        }
+    }
+
+    lock_recover(&CODEX_TURN_REGISTRY, "CODEX_TURN_REGISTRY")
+        .insert(session_id, (thread_id, turn_id));
+    true
+}
+
+/// Remove a Codex app-server turn from the registry (called after turn completion).
+pub fn unregister_codex_turn(session_id: &str) {
+    lock_recover(&CODEX_TURN_REGISTRY, "CODEX_TURN_REGISTRY").remove(session_id);
+}
+
+/// Remove all registry state for a session after a backend crash or thread panic.
+pub fn cleanup_session_registrations(session_id: &str) {
+    let removed_pid = lock_recover(&PROCESS_REGISTRY, "PROCESS_REGISTRY").remove(session_id);
+    let removed_pending = lock_recover(&PENDING_CANCELS, "PENDING_CANCELS").remove(session_id);
+    let removed_flag = lock_recover(&CANCEL_FLAGS, "CANCEL_FLAGS")
+        .remove(session_id)
+        .is_some();
+    let removed_turn = lock_recover(&CODEX_TURN_REGISTRY, "CODEX_TURN_REGISTRY")
+        .remove(session_id)
+        .is_some();
+
+    if removed_pid.is_some() || removed_pending || removed_flag || removed_turn {
+        log::warn!(
+            "[Registry] cleaned stale state for session={session_id} pid={removed_pid:?} pending={removed_pending} cancel_flag={removed_flag} codex_turn={removed_turn}"
+        );
+    }
 }
 
 /// Check if a session has a running process
 #[allow(dead_code)]
 pub fn is_process_running(session_id: &str) -> bool {
-    PROCESS_REGISTRY.lock().unwrap().contains_key(session_id)
+    lock_recover(&PROCESS_REGISTRY, "PROCESS_REGISTRY").contains_key(session_id)
 }
 
 /// Get all session IDs that currently have running processes
 pub fn get_running_sessions() -> Vec<String> {
-    PROCESS_REGISTRY.lock().unwrap().keys().cloned().collect()
+    lock_recover(&PROCESS_REGISTRY, "PROCESS_REGISTRY")
+        .keys()
+        .cloned()
+        .collect()
 }
 
-/// Get all session IDs that are actively managed (running process OR cancel flag).
+/// Get all session IDs that are actively managed (running process, cancel flag, or codex turn).
 /// Used by recover_incomplete_runs to skip sessions that don't need recovery.
 pub fn get_actively_managed_sessions() -> HashSet<String> {
-    let mut sessions: HashSet<String> =
-        PROCESS_REGISTRY.lock().unwrap().keys().cloned().collect();
-    sessions.extend(CANCEL_FLAGS.lock().unwrap().keys().cloned());
+    let mut sessions: HashSet<String> = lock_recover(&PROCESS_REGISTRY, "PROCESS_REGISTRY")
+        .keys()
+        .cloned()
+        .collect();
+    sessions.extend(lock_recover(&CANCEL_FLAGS, "CANCEL_FLAGS").keys().cloned());
+    sessions.extend(
+        lock_recover(&CODEX_TURN_REGISTRY, "CODEX_TURN_REGISTRY")
+            .keys()
+            .cloned(),
+    );
     sessions
 }
 
-/// Check if a specific session is actively managed (has a running process or cancel flag).
+/// Check if a specific session is actively managed (has a running process, cancel flag, or codex turn).
 /// Used by resume_session to avoid starting a duplicate tail.
 pub fn is_session_actively_managed(session_id: &str) -> bool {
-    PROCESS_REGISTRY.lock().unwrap().contains_key(session_id)
-        || CANCEL_FLAGS.lock().unwrap().contains_key(session_id)
+    lock_recover(&PROCESS_REGISTRY, "PROCESS_REGISTRY").contains_key(session_id)
+        || lock_recover(&CANCEL_FLAGS, "CANCEL_FLAGS").contains_key(session_id)
+        || lock_recover(&CODEX_TURN_REGISTRY, "CODEX_TURN_REGISTRY").contains_key(session_id)
 }
 
 /// Cancel a running Claude process for a session by sending SIGKILL to the process group
@@ -133,11 +192,14 @@ pub fn cancel_process(
     session_id: &str,
     worktree_id: &str,
 ) -> Result<bool, String> {
-    let mut registry = PROCESS_REGISTRY.lock().unwrap();
     log::warn!("cancel_process called for session: {session_id}");
-    log::warn!("Registry state: {:?}", registry.iter().collect::<Vec<_>>());
+    let pid = {
+        let mut registry = lock_recover(&PROCESS_REGISTRY, "PROCESS_REGISTRY");
+        log::warn!("Registry state: {:?}", registry.iter().collect::<Vec<_>>());
+        registry.remove(session_id)
+    };
 
-    if let Some(pid) = registry.remove(session_id) {
+    if let Some(pid) = pid {
         // SAFETY: Never kill PID 0 (would kill our own process group) or PID 1 (init/launchd)
         if pid == 0 || pid == 1 {
             log::error!("Refusing to kill dangerous PID: {pid}");
@@ -189,8 +251,42 @@ pub fn cancel_process(
             log::error!("Failed to emit chat:cancelled event: {e}");
         }
 
-        Ok(true)
-    } else if let Some(flag) = CANCEL_FLAGS.lock().unwrap().get(session_id).cloned() {
+        return Ok(true);
+    }
+
+    let codex_turn = {
+        let mut registry = lock_recover(&CODEX_TURN_REGISTRY, "CODEX_TURN_REGISTRY");
+        registry.remove(session_id)
+    };
+    if let Some((thread_id, turn_id)) = codex_turn {
+        // Codex app-server session: send turn/interrupt
+        log::warn!("Codex app-server session {session_id}: interrupting turn {turn_id}");
+        if let Err(e) = super::codex_server::interrupt_turn(&thread_id, &turn_id) {
+            log::error!("Failed to interrupt Codex turn: {e}");
+        }
+
+        if let Err(e) = run_log::mark_running_run_cancelled(app, session_id) {
+            log::warn!("Failed to mark run as cancelled in manifest: {e}");
+        }
+
+        let event = CancelledEvent {
+            session_id: session_id.to_string(),
+            worktree_id: worktree_id.to_string(),
+            undo_send: false,
+        };
+        if let Err(e) = app.emit_all("chat:cancelled", &event) {
+            log::error!("Failed to emit chat:cancelled event: {e}");
+        }
+
+        return Ok(true);
+    }
+
+    let flag = {
+        lock_recover(&CANCEL_FLAGS, "CANCEL_FLAGS")
+            .get(session_id)
+            .cloned()
+    };
+    if let Some(flag) = flag {
         // OpenCode session: set the cancel flag so the HTTP thread detects it
         log::warn!("OpenCode session {session_id}: setting cancel flag");
         flag.store(true, Ordering::SeqCst);
@@ -210,31 +306,31 @@ pub fn cancel_process(
             log::error!("Failed to emit chat:cancelled event: {e}");
         }
 
-        Ok(true)
-    } else {
-        // Process not yet registered — queue for pending cancellation.
-        // When register_process or register_cancel_flag is called later, the cancel is applied immediately.
-        {
-            let mut pending = PENDING_CANCELS.lock().unwrap();
-            log::warn!("[Registry] cancel_process: no PID/flag for session={session_id}, adding to PENDING_CANCELS (before={:?})", pending.iter().collect::<Vec<_>>());
-            pending.insert(session_id.to_string());
-        }
-
-        // Try to mark run as cancelled (may not exist yet if still preparing, that's ok)
-        let _ = run_log::mark_running_run_cancelled(app, session_id);
-
-        // Emit cancelled event so frontend handles it immediately
-        let event = CancelledEvent {
-            session_id: session_id.to_string(),
-            worktree_id: worktree_id.to_string(),
-            undo_send: true, // No content was streamed yet
-        };
-        if let Err(e) = app.emit_all("chat:cancelled", &event) {
-            log::error!("Failed to emit chat:cancelled event: {e}");
-        }
-
-        Ok(true)
+        return Ok(true);
     }
+
+    // Process not yet registered — queue for pending cancellation.
+    // When register_process or register_cancel_flag is called later, the cancel is applied immediately.
+    {
+        let mut pending = lock_recover(&PENDING_CANCELS, "PENDING_CANCELS");
+        log::warn!("[Registry] cancel_process: no PID/flag for session={session_id}, adding to PENDING_CANCELS (before={:?})", pending.iter().collect::<Vec<_>>());
+        pending.insert(session_id.to_string());
+    }
+
+    // Try to mark run as cancelled (may not exist yet if still preparing, that's ok)
+    let _ = run_log::mark_running_run_cancelled(app, session_id);
+
+    // Emit cancelled event so frontend handles it immediately
+    let event = CancelledEvent {
+        session_id: session_id.to_string(),
+        worktree_id: worktree_id.to_string(),
+        undo_send: true, // No content was streamed yet
+    };
+    if let Err(e) = app.emit_all("chat:cancelled", &event) {
+        log::error!("Failed to emit chat:cancelled event: {e}");
+    }
+
+    Ok(true)
 }
 
 /// Cancel a running Claude process only if one is actively registered.
@@ -246,9 +342,12 @@ pub fn cancel_process_if_running(
     session_id: &str,
     worktree_id: &str,
 ) -> Result<bool, String> {
-    let mut registry = PROCESS_REGISTRY.lock().unwrap();
+    let pid = {
+        let mut registry = lock_recover(&PROCESS_REGISTRY, "PROCESS_REGISTRY");
+        registry.remove(session_id)
+    };
 
-    if let Some(pid) = registry.remove(session_id) {
+    if let Some(pid) = pid {
         if pid == 0 || pid == 1 {
             log::error!("Refusing to kill dangerous PID: {pid}");
             return Err(format!("Invalid PID: {pid}"));
@@ -280,8 +379,44 @@ pub fn cancel_process_if_running(
             log::error!("Failed to emit chat:cancelled event: {e}");
         }
 
-        Ok(true)
-    } else if let Some(flag) = CANCEL_FLAGS.lock().unwrap().get(session_id).cloned() {
+        return Ok(true);
+    }
+
+    let codex_turn = {
+        let mut registry = lock_recover(&CODEX_TURN_REGISTRY, "CODEX_TURN_REGISTRY");
+        registry.remove(session_id)
+    };
+    if let Some((thread_id, turn_id)) = codex_turn {
+        // Codex app-server session actively running — interrupt turn
+        log::trace!(
+            "Codex app-server session {session_id} is running, interrupting turn {turn_id}"
+        );
+        if let Err(e) = super::codex_server::interrupt_turn(&thread_id, &turn_id) {
+            log::error!("Failed to interrupt Codex turn: {e}");
+        }
+
+        if let Err(e) = run_log::mark_running_run_cancelled(app, session_id) {
+            log::warn!("Failed to mark run as cancelled in manifest: {e}");
+        }
+
+        let event = CancelledEvent {
+            session_id: session_id.to_string(),
+            worktree_id: worktree_id.to_string(),
+            undo_send: false,
+        };
+        if let Err(e) = app.emit_all("chat:cancelled", &event) {
+            log::error!("Failed to emit chat:cancelled event: {e}");
+        }
+
+        return Ok(true);
+    }
+
+    let flag = {
+        lock_recover(&CANCEL_FLAGS, "CANCEL_FLAGS")
+            .get(session_id)
+            .cloned()
+    };
+    if let Some(flag) = flag {
         // OpenCode session actively running — set the cancel flag
         log::trace!("OpenCode session {session_id} is running, setting cancel flag");
         flag.store(true, Ordering::SeqCst);
@@ -299,12 +434,12 @@ pub fn cancel_process_if_running(
             log::error!("Failed to emit chat:cancelled event: {e}");
         }
 
-        Ok(true)
-    } else {
-        // Session is idle — do nothing. No PENDING_CANCELS, no event emission.
-        log::trace!("Session {session_id} has no running process, skipping cancel");
-        Ok(false)
+        return Ok(true);
     }
+
+    // Session is idle — do nothing. No PENDING_CANCELS, no event emission.
+    log::trace!("Session {session_id} has no running process, skipping cancel");
+    Ok(false)
 }
 
 /// Cancel all running Claude processes for a given worktree

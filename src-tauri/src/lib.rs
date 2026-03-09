@@ -1352,15 +1352,15 @@ async fn save_preferences(app: AppHandle, preferences: AppPreferences) -> Result
 #[tauri::command]
 async fn patch_preferences(app: AppHandle, patch: Value) -> Result<(), String> {
     let current = load_preferences(app.clone()).await?;
-    let mut current_json = serde_json::to_value(&current)
-        .map_err(|e| format!("Serialize error: {e}"))?;
+    let mut current_json =
+        serde_json::to_value(&current).map_err(|e| format!("Serialize error: {e}"))?;
     if let (Some(base), Some(patch_obj)) = (current_json.as_object_mut(), patch.as_object()) {
         for (key, value) in patch_obj {
             base.insert(key.clone(), value.clone());
         }
     }
-    let merged: AppPreferences = serde_json::from_value(current_json)
-        .map_err(|e| format!("Merge error: {e}"))?;
+    let merged: AppPreferences =
+        serde_json::from_value(current_json).map_err(|e| format!("Merge error: {e}"))?;
     save_preferences(app, merged).await
 }
 
@@ -2198,9 +2198,11 @@ pub fn run() {
             // Spawned async — cleanup involves blocking I/O (HTTP health check with
             // 1.2s timeout, process kill, 300ms sleep) that can delay startup by ~1.5s.
             let cleanup_handle = app.handle().clone();
+            let codex_cleanup_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 tokio::task::spawn_blocking(move || {
                     opencode_server::cleanup_orphaned_server(&cleanup_handle);
+                    chat::codex_server::cleanup_orphaned_server(&codex_cleanup_handle);
                 })
                 .await
                 .ok();
@@ -2706,6 +2708,7 @@ pub fn run() {
                     Ok(false) => {}
                     Err(e) => eprintln!("[OPENCODE CLEANUP] Failed during Exit: {e}"),
                 }
+                chat::codex_server::shutdown_server();
             }
             tauri::RunEvent::ExitRequested { api, .. } => {
                 // In headless mode, prevent exit when window closes
@@ -2725,6 +2728,7 @@ pub fn run() {
                         eprintln!("[OPENCODE CLEANUP] Failed during ExitRequested: {e}")
                     }
                 }
+                chat::codex_server::shutdown_server();
             }
             tauri::RunEvent::WindowEvent { label, event, .. } => {
                 if let tauri::WindowEvent::CloseRequested { .. } = event {
@@ -2744,6 +2748,7 @@ pub fn run() {
                             eprintln!("[OPENCODE CLEANUP] Failed during CloseRequested: {e}")
                         }
                     }
+                    chat::codex_server::shutdown_server();
                 }
                 if let tauri::WindowEvent::Destroyed = event {
                     eprintln!("[TERMINAL CLEANUP] Window {label} destroyed");
