@@ -10,6 +10,8 @@ import {
   Hammer,
   Loader2,
   Plug,
+  Shield,
+  ShieldAlert,
   Sparkles,
   Wand2,
   Zap,
@@ -45,8 +47,11 @@ import type {
   AttachedSavedContext,
   LoadedIssueContext,
   LoadedPullRequestContext,
+  LoadedSecurityAlertContext,
+  LoadedAdvisoryContext,
 } from '@/types/github'
 import type { LoadedLinearIssueContext } from '@/types/linear'
+import { LinearIcon } from '@/components/icons/LinearIcon'
 import type {
   CheckStatus,
   MergeableStatus,
@@ -102,6 +107,8 @@ interface DesktopToolbarControlsProps {
 
   loadedIssueContexts: LoadedIssueContext[]
   loadedPRContexts: LoadedPullRequestContext[]
+  loadedSecurityContexts: LoadedSecurityAlertContext[]
+  loadedAdvisoryContexts: LoadedAdvisoryContext[]
   loadedLinearContexts: LoadedLinearIssueContext[]
   attachedSavedContexts: AttachedSavedContext[]
 
@@ -129,6 +136,9 @@ interface DesktopToolbarControlsProps {
   handleEffortLevelChange: (value: string) => void
   handleViewIssue: (ctx: LoadedIssueContext) => void
   handleViewPR: (ctx: LoadedPullRequestContext) => void
+  handleViewSecurityAlert: (ctx: LoadedSecurityAlertContext) => void
+  handleViewAdvisory: (ctx: LoadedAdvisoryContext) => void
+  handleViewLinear: (ctx: LoadedLinearIssueContext) => void
   handleViewSavedContext: (ctx: AttachedSavedContext) => void
 }
 
@@ -161,6 +171,8 @@ export function DesktopToolbarControls({
   mcpStatuses,
   loadedIssueContexts,
   loadedPRContexts,
+  loadedSecurityContexts,
+  loadedAdvisoryContexts,
   loadedLinearContexts,
   attachedSavedContexts,
   providerDropdownOpen,
@@ -185,6 +197,9 @@ export function DesktopToolbarControls({
   handleEffortLevelChange,
   handleViewIssue,
   handleViewPR,
+  handleViewSecurityAlert,
+  handleViewAdvisory,
+  handleViewLinear,
   handleViewSavedContext,
 }: DesktopToolbarControlsProps) {
   // Prevent Radix from restoring focus to the trigger button;
@@ -196,6 +211,7 @@ export function DesktopToolbarControls({
 
   const loadedIssueCount = loadedIssueContexts.length
   const loadedPRCount = loadedPRContexts.length
+  const loadedSecurityCount = loadedSecurityContexts.length + loadedAdvisoryContexts.length
   const loadedLinearCount = loadedLinearContexts.length
   const loadedContextCount = attachedSavedContexts.length
   const providerDisplayName = getProviderDisplayName(selectedProvider)
@@ -342,6 +358,7 @@ export function DesktopToolbarControls({
 
       {(loadedIssueCount > 0 ||
         loadedPRCount > 0 ||
+        loadedSecurityCount > 0 ||
         loadedLinearCount > 0 ||
         loadedContextCount > 0) && (
         <>
@@ -354,19 +371,13 @@ export function DesktopToolbarControls({
               >
                 <CircleDot className="h-3.5 w-3.5" />
                 <span>
-                  {loadedIssueCount > 0 &&
-                    `${loadedIssueCount} Issue${loadedIssueCount > 1 ? 's' : ''}`}
-                  {loadedIssueCount > 0 &&
-                    (loadedPRCount > 0 || loadedLinearCount > 0 || loadedContextCount > 0) &&
-                    ', '}
-                  {loadedPRCount > 0 &&
-                    `${loadedPRCount} PR${loadedPRCount > 1 ? 's' : ''}`}
-                  {loadedPRCount > 0 && (loadedLinearCount > 0 || loadedContextCount > 0) && ', '}
-                  {loadedLinearCount > 0 &&
-                    `${loadedLinearCount} Linear${loadedLinearCount > 1 ? ' Issues' : ''}`}
-                  {loadedLinearCount > 0 && loadedContextCount > 0 && ', '}
-                  {loadedContextCount > 0 &&
-                    `${loadedContextCount} Context${loadedContextCount > 1 ? 's' : ''}`}
+                  {[
+                    loadedIssueCount > 0 && `${loadedIssueCount} Issue${loadedIssueCount > 1 ? 's' : ''}`,
+                    loadedPRCount > 0 && `${loadedPRCount} PR${loadedPRCount > 1 ? 's' : ''}`,
+                    loadedSecurityCount > 0 && `${loadedSecurityCount} Security`,
+                    loadedLinearCount > 0 && `${loadedLinearCount} Linear`,
+                    loadedContextCount > 0 && `${loadedContextCount} Context${loadedContextCount > 1 ? 's' : ''}`,
+                  ].filter(Boolean).join(', ')}
                 </span>
                 <ChevronDown className="h-3 w-3 opacity-50" />
               </button>
@@ -433,19 +444,100 @@ export function DesktopToolbarControls({
                 </>
               )}
 
-              {loadedLinearContexts.length > 0 && (
+              {loadedSecurityContexts.length > 0 && (
                 <>
                   {(loadedIssueContexts.length > 0 ||
                     loadedPRContexts.length > 0) && <DropdownMenuSeparator />}
                   <DropdownMenuLabel className="text-xs text-muted-foreground">
+                    Security Alerts
+                  </DropdownMenuLabel>
+                  {loadedSecurityContexts.map(ctx => (
+                    <DropdownMenuItem
+                      key={ctx.number}
+                      onClick={() => handleViewSecurityAlert(ctx)}
+                    >
+                      <Shield className="h-4 w-4 text-orange-500" />
+                      <span className="truncate">
+                        #{ctx.number} {ctx.packageName} ({ctx.severity})
+                      </span>
+                      <button
+                        className="ml-auto shrink-0 rounded p-0.5 hover:bg-accent"
+                        onClick={e => {
+                          e.stopPropagation()
+                          openExternal(
+                            `https://github.com/${ctx.repoOwner}/${ctx.repoName}/security/dependabot/${ctx.number}`
+                          )
+                        }}
+                      >
+                        <ExternalLink className="h-3.5 w-3.5 opacity-60" />
+                      </button>
+                    </DropdownMenuItem>
+                  ))}
+                </>
+              )}
+
+              {loadedAdvisoryContexts.length > 0 && (
+                <>
+                  {(loadedIssueContexts.length > 0 ||
+                    loadedPRContexts.length > 0 ||
+                    loadedSecurityContexts.length > 0) && <DropdownMenuSeparator />}
+                  <DropdownMenuLabel className="text-xs text-muted-foreground">
+                    Advisories
+                  </DropdownMenuLabel>
+                  {loadedAdvisoryContexts.map(ctx => (
+                    <DropdownMenuItem
+                      key={ctx.ghsaId}
+                      onClick={() => handleViewAdvisory(ctx)}
+                    >
+                      <ShieldAlert className="h-4 w-4 text-orange-500" />
+                      <span className="truncate">
+                        {ctx.ghsaId} — {ctx.summary}
+                      </span>
+                      <button
+                        className="ml-auto shrink-0 rounded p-0.5 hover:bg-accent"
+                        onClick={e => {
+                          e.stopPropagation()
+                          openExternal(
+                            `https://github.com/${ctx.repoOwner}/${ctx.repoName}/security/advisories/${ctx.ghsaId}`
+                          )
+                        }}
+                      >
+                        <ExternalLink className="h-3.5 w-3.5 opacity-60" />
+                      </button>
+                    </DropdownMenuItem>
+                  ))}
+                </>
+              )}
+
+              {loadedLinearContexts.length > 0 && (
+                <>
+                  {(loadedIssueContexts.length > 0 ||
+                    loadedPRContexts.length > 0 ||
+                    loadedSecurityContexts.length > 0 ||
+                    loadedAdvisoryContexts.length > 0) && <DropdownMenuSeparator />}
+                  <DropdownMenuLabel className="text-xs text-muted-foreground">
                     Linear Issues
                   </DropdownMenuLabel>
                   {loadedLinearContexts.map(ctx => (
-                    <DropdownMenuItem key={ctx.identifier}>
-                      <CircleDot className="h-4 w-4 text-violet-500" />
+                    <DropdownMenuItem
+                      key={ctx.identifier}
+                      onClick={() => handleViewLinear(ctx)}
+                    >
+                      <LinearIcon className="h-4 w-4 text-violet-500" />
                       <span className="truncate">
                         {ctx.identifier} {ctx.title}
                       </span>
+                      {ctx.url && (
+                        <button
+                          className="ml-auto shrink-0 rounded p-0.5 hover:bg-accent"
+                          onClick={e => {
+                            e.stopPropagation()
+                            if (ctx.url) openExternal(ctx.url)
+                          }}
+                        >
+                          <ExternalLink className="h-3.5 w-3.5 opacity-60" />
+                        </button>
+                      )}
                     </DropdownMenuItem>
                   ))}
                 </>
@@ -455,6 +547,8 @@ export function DesktopToolbarControls({
                 <>
                   {(loadedIssueContexts.length > 0 ||
                     loadedPRContexts.length > 0 ||
+                    loadedSecurityContexts.length > 0 ||
+                    loadedAdvisoryContexts.length > 0 ||
                     loadedLinearContexts.length > 0) && <DropdownMenuSeparator />}
                   <DropdownMenuLabel className="text-xs text-muted-foreground">
                     Contexts

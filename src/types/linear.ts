@@ -56,6 +56,7 @@ export interface LoadedLinearIssueContext {
   title: string
   commentCount: number
   projectName: string
+  url?: string
 }
 
 /**

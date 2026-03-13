@@ -101,6 +101,7 @@ pub struct LoadedLinearIssueContext {
     pub title: String,
     pub comment_count: usize,
     pub project_name: String,
+    pub url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -724,6 +725,7 @@ pub async fn load_linear_issue_context(
         title: detail.title,
         comment_count,
         project_name,
+        url: Some(detail.url.clone()),
     })
 }
 
@@ -784,11 +786,18 @@ pub async fn list_loaded_linear_issue_contexts(
                     .map(|section| section.lines().filter(|l| l.starts_with("### ")).count())
                     .unwrap_or(0);
 
+                let url = content
+                    .lines()
+                    .find(|l| l.starts_with("- **URL**: "))
+                    .and_then(|l| l.strip_prefix("- **URL**: "))
+                    .map(|s| s.to_string());
+
                 contexts.push(LoadedLinearIssueContext {
                     identifier: identifier.to_string(),
                     title,
                     comment_count,
                     project_name: project_name.clone(),
+                    url,
                 });
             }
         }

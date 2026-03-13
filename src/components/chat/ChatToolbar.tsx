@@ -70,6 +70,8 @@ export const ChatToolbar = memo(function ChatToolbar({
   projectId,
   loadedIssueContexts,
   loadedPRContexts,
+  loadedSecurityContexts,
+  loadedAdvisoryContexts,
   loadedLinearContexts,
   attachedSavedContexts,
   onOpenMagicModal,
@@ -154,7 +156,10 @@ export const ChatToolbar = memo(function ChatToolbar({
     handleViewIssue,
     handleViewPR,
     handleViewSavedContext,
-  } = useContextViewer({ activeSessionId, activeWorktreePath })
+    handleViewSecurityAlert,
+    handleViewAdvisory,
+    handleViewLinear,
+  } = useContextViewer({ activeSessionId, activeWorktreePath, worktreeId, projectId })
 
   const handleModelChange = useCallback(
     (value: string) => {
@@ -329,6 +334,8 @@ export const ChatToolbar = memo(function ChatToolbar({
           mcpStatuses={mcpStatuses}
           loadedIssueContexts={loadedIssueContexts}
           loadedPRContexts={loadedPRContexts}
+          loadedSecurityContexts={loadedSecurityContexts}
+          loadedAdvisoryContexts={loadedAdvisoryContexts}
           loadedLinearContexts={loadedLinearContexts}
           attachedSavedContexts={attachedSavedContexts}
           providerDropdownOpen={providerDropdownOpen}
@@ -353,6 +360,9 @@ export const ChatToolbar = memo(function ChatToolbar({
           handleEffortLevelChange={handleEffortLevelChange}
           handleViewIssue={handleViewIssue}
           handleViewPR={handleViewPR}
+          handleViewSecurityAlert={handleViewSecurityAlert}
+          handleViewAdvisory={handleViewAdvisory}
+          handleViewLinear={handleViewLinear}
           handleViewSavedContext={handleViewSavedContext}
         />
 

@@ -43,6 +43,8 @@ import type { Worktree, WorktreeCreatedEvent, WorktreeCreateErrorEvent } from '@
 import {
   useLoadedIssueContexts,
   useLoadedPRContexts,
+  useLoadedSecurityContexts,
+  useLoadedAdvisoryContexts,
   useAttachedSavedContexts,
 } from '@/services/github'
 import { useLoadedLinearIssueContexts } from '@/services/linear'
@@ -425,6 +427,18 @@ export function ChatWindow({
 
   // Loaded PR contexts for indicator and investigate PR functionality
   const { data: loadedPRContexts } = useLoadedPRContexts(
+    activeSessionId ?? null,
+    activeWorktreeId
+  )
+
+  // Loaded security alert contexts for indicator
+  const { data: loadedSecurityContexts } = useLoadedSecurityContexts(
+    activeSessionId ?? null,
+    activeWorktreeId
+  )
+
+  // Loaded advisory contexts for indicator
+  const { data: loadedAdvisoryContexts } = useLoadedAdvisoryContexts(
     activeSessionId ?? null,
     activeWorktreeId
   )
@@ -2368,6 +2382,8 @@ export function ChatWindow({
                               projectId={worktree?.project_id}
                               loadedIssueContexts={loadedIssueContexts ?? []}
                               loadedPRContexts={loadedPRContexts ?? []}
+                              loadedSecurityContexts={loadedSecurityContexts ?? []}
+                              loadedAdvisoryContexts={loadedAdvisoryContexts ?? []}
                               loadedLinearContexts={loadedLinearContexts ?? []}
                               attachedSavedContexts={
                                 attachedSavedContexts ?? []

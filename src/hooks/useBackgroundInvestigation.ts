@@ -3,7 +3,7 @@ import { invoke } from '@/lib/transport'
 import { useChatStore } from '@/store/chat-store'
 import { useUIStore } from '@/store/ui-store'
 import { usePreferences } from '@/services/preferences'
-import { chatQueryKeys, persistEnqueue } from '@/services/chat'
+import { useSendMessage, chatQueryKeys } from '@/services/chat'
 import { resolveBackend, supportsAdaptiveThinking } from '@/lib/model-utils'
 import {
   DEFAULT_INVESTIGATE_ISSUE_PROMPT,
@@ -11,9 +11,10 @@ import {
   DEFAULT_INVESTIGATE_SECURITY_ALERT_PROMPT,
   DEFAULT_INVESTIGATE_ADVISORY_PROMPT,
   DEFAULT_INVESTIGATE_LINEAR_ISSUE_PROMPT,
+  DEFAULT_PARALLEL_EXECUTION_PROMPT,
   resolveMagicPromptProvider,
 } from '@/types/preferences'
-import type { WorktreeSessions, QueuedMessage } from '@/types/chat'
+import type { WorktreeSessions } from '@/types/chat'
 import { logger } from '@/lib/logger'
 import { useQueryClient } from '@tanstack/react-query'
 import { projectsQueryKeys } from '@/services/projects'
@@ -26,14 +27,15 @@ type InvestigationType = 'issue' | 'pr' | 'security-alert' | 'advisory' | 'linea
  *
  * When a worktree is created via CMD+Click with auto-investigate, the ChatWindow
  * never mounts (no modal opens), so the auto-investigate flag is never consumed.
- * This hook watches those flags, builds the investigation prompt, and enqueues
- * it into messageQueues for useQueueProcessor to send — no modal needed.
+ * This hook watches those flags, builds the investigation prompt, and sends it
+ * directly via sendMessage — no modal needed.
  *
  * Must be mounted at App level alongside useQueueProcessor.
  */
 export function useBackgroundInvestigation(): void {
   const { data: preferences } = usePreferences()
   const queryClient = useQueryClient()
+  const sendMessage = useSendMessage()
   const processingRef = useRef<Set<string>>(new Set())
 
   // Subscribe to auto-investigate flags — re-run effect when they change
@@ -160,13 +162,14 @@ export function useBackgroundInvestigation(): void {
         preferences,
         null,
         queryClient,
+        sendMessage,
       ).catch(err => {
         logger.error('Background investigation failed', { worktreeId, err })
       }).finally(() => {
         processingRef.current.delete(worktreeId)
       })
     }
-  }, [hasAutoInvestigate, worktreePathCount, preferences, queryClient])
+  }, [hasAutoInvestigate, worktreePathCount, preferences, queryClient, sendMessage])
 }
 
 /**
@@ -291,7 +294,11 @@ function resolveModelProviderKeys(type: InvestigationType) {
 }
 
 /**
- * Process a single background investigation: fetch session, build prompt, enqueue message.
+ * Process a single background investigation: fetch session, build prompt, send directly.
+ *
+ * Sends via sendMessage.mutateAsync() instead of the message queue to avoid a race
+ * condition where useQueueProcessor calls persistDequeue before persistEnqueue
+ * completes on the backend, causing the message to be lost.
  */
 async function processBackgroundInvestigation(
   worktreeId: string,
@@ -299,6 +306,8 @@ async function processBackgroundInvestigation(
   preferences: ReturnType<typeof usePreferences>['data'],
   cliVersion: string | null,
   queryClient: ReturnType<typeof useQueryClient>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sendMessage: { mutateAsync: (args: any) => Promise<any> },
 ): Promise<void> {
   const worktreePath = useChatStore.getState().worktreePaths[worktreeId]
   if (!worktreePath) return
@@ -318,7 +327,7 @@ async function processBackgroundInvestigation(
     return
   }
 
-  // Register session-worktree mapping so useQueueProcessor can find the worktree
+  // Register session-worktree mapping so streaming events can find the worktree
   const { setActiveSession } = useChatStore.getState()
   setActiveSession(worktreeId, sessionId)
 
@@ -387,7 +396,12 @@ async function processBackgroundInvestigation(
     setSelectedProvider,
     setSelectedBackend,
     setExecutingMode,
-    enqueueMessage,
+    clearStreamingContent,
+    clearToolCalls,
+    clearStreamingContentBlocks,
+    setLastSentMessage,
+    setError,
+    setSessionReviewing,
   } = useChatStore.getState()
 
   setSelectedModel(sessionId, selectedModel)
@@ -400,27 +414,39 @@ async function processBackgroundInvestigation(
   const useAdaptive =
     !isCustomProvider && supportsAdaptiveThinking(selectedModel, cliVersion)
 
-  // Build and enqueue the message
-  const queuedMessage: QueuedMessage = {
-    id: `bg-investigate-${worktreeId}-${Date.now()}`,
+  // Pre-send state setup (mirrors useQueueProcessor)
+  clearStreamingContent(sessionId)
+  clearToolCalls(sessionId)
+  clearStreamingContentBlocks(sessionId)
+  setLastSentMessage(sessionId, prompt)
+  setError(sessionId, null)
+  setSessionReviewing(sessionId, false)
+  // Note: addSendingSession is handled by sendMessage's onMutate
+
+  // Send the message directly — no queue involved.
+  // This avoids the race condition where useQueueProcessor's persistDequeue
+  // runs before persistEnqueue completes, causing the message to be lost.
+  await sendMessage.mutateAsync({
+    sessionId,
+    worktreeId,
+    worktreePath,
     message: prompt,
-    pendingImages: [],
-    pendingFiles: [],
-    pendingSkills: [],
-    pendingTextFiles: [],
     model: selectedModel,
-    provider: customProfileName ?? null,
     executionMode: 'plan',
     thinkingLevel: 'think',
     effortLevel: useAdaptive ? 'high' : undefined,
+    customProfileName,
+    parallelExecutionPrompt:
+      preferences?.parallel_execution_prompt_enabled
+        ? (preferences.magic_prompts?.parallel_execution ??
+          DEFAULT_PARALLEL_EXECUTION_PROMPT)
+        : undefined,
+    chromeEnabled: preferences?.chrome_enabled ?? false,
+    aiLanguage: preferences?.ai_language,
     backend,
-    queuedAt: Date.now(),
-  }
+  })
 
-  enqueueMessage(sessionId, queuedMessage)
-  persistEnqueue(worktreeId, worktreePath, sessionId, queuedMessage)
-
-  logger.info('Background investigation enqueued', {
+  logger.info('Background investigation sent', {
     worktreeId,
     sessionId,
     type,
