@@ -196,8 +196,8 @@ pub struct AppPreferences {
     pub codex_multi_agent_enabled: bool, // Enable multi-agent collaboration (experimental)
     #[serde(default = "default_codex_max_agent_threads")]
     pub codex_max_agent_threads: u32, // Max concurrent agent threads (1-8)
-    #[serde(default)]
-    pub restore_last_session: bool, // Restore last session when switching projects (default: false)
+    #[serde(default = "default_restore_last_session")]
+    pub restore_last_session: bool, // Restore last session when switching projects (default: true)
     #[serde(default)]
     pub close_original_on_clear_context: bool, // Close original session when using Clear Context and yolo (default: true)
     #[serde(default)]
@@ -218,6 +218,10 @@ pub struct AppPreferences {
 
 fn default_true() -> Option<bool> {
     None
+}
+
+fn default_restore_last_session() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1110,7 +1114,7 @@ impl Default for AppPreferences {
             default_codex_reasoning_effort: default_codex_reasoning_effort(),
             codex_multi_agent_enabled: false,
             codex_max_agent_threads: default_codex_max_agent_threads(),
-            restore_last_session: false,
+            restore_last_session: true,
             close_original_on_clear_context: true,
             build_model: None,
             yolo_model: None,

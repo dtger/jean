@@ -177,7 +177,9 @@ export const ChatToolbar = memo(function ChatToolbar({
         provider !== '__anthropic__' &&
         (selectedModel === 'opus-4.5' ||
           selectedModel === 'claude-opus-4-6[1m]' ||
-          selectedModel === 'claude-sonnet-4-6[1m]')
+          selectedModel === 'claude-sonnet-4-6[1m]' ||
+          selectedModel === 'opus-fast' ||
+          selectedModel === 'claude-opus-4-6[1m]-fast')
       ) {
         onModelChange('opus' as ClaudeModel)
       }

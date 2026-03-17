@@ -2204,6 +2204,7 @@ export function ChatWindow({
                               <QueuedMessagesList
                                 messages={currentQueuedMessages}
                                 sessionId={activeSessionId}
+                                worktreePath={activeWorktreePath}
                                 onRemove={handleRemoveQueuedMessage}
                                 onForceSend={handleForceSendQueued}
                                 isSessionIdle={!isSending}

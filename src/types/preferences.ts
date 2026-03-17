@@ -946,7 +946,7 @@ export interface AppPreferences {
   default_codex_reasoning_effort: CodexReasoningEffort // Default reasoning effort for Codex: 'low' | 'medium' | 'high' | 'xhigh'
   codex_multi_agent_enabled: boolean // Enable Codex multi-agent collaboration (experimental)
   codex_max_agent_threads: number // Max concurrent agent threads (1-8) when multi-agent is enabled
-  restore_last_session: boolean // Restore last session when switching projects (default: false)
+  restore_last_session: boolean // Restore last session when switching projects (default: true)
   close_original_on_clear_context: boolean // Close original session when using Clear Context and yolo (default: true)
   build_model: string | null // Model override for plan approval (build mode), null = use session model
   yolo_model: string | null // Model override for yolo plan approval, null = use session model
@@ -1049,6 +1049,8 @@ export const fileEditModeOptions: { value: FileEditMode; label: string }[] = [
 export type ClaudeModel =
   | 'opus'
   | 'claude-opus-4-6[1m]'
+  | 'opus-fast'
+  | 'claude-opus-4-6[1m]-fast'
   | 'opus-4.5'
   | 'sonnet'
   | 'claude-sonnet-4-6[1m]'
@@ -1058,6 +1060,8 @@ export type ClaudeModel =
 export const modelOptions: { value: ClaudeModel; label: string }[] = [
   { value: 'opus', label: 'Claude Opus 4.6' },
   { value: 'claude-opus-4-6[1m]', label: 'Claude Opus 4.6 (1M)' },
+  { value: 'opus-fast', label: 'Claude Opus 4.6 Fast' },
+  { value: 'claude-opus-4-6[1m]-fast', label: 'Claude Opus 4.6 (1M) Fast' },
   { value: 'opus-4.5', label: 'Claude Opus 4.5' },
   { value: 'sonnet', label: 'Claude Sonnet 4.6' },
   { value: 'claude-sonnet-4-6[1m]', label: 'Claude Sonnet 4.6 (1M)' },
@@ -1501,7 +1505,7 @@ export const defaultPreferences: AppPreferences = {
   default_codex_reasoning_effort: 'high', // Default: high reasoning
   codex_multi_agent_enabled: false, // Default: disabled
   codex_max_agent_threads: 3, // Default: 3 threads
-  restore_last_session: false, // Default: disabled
+  restore_last_session: true, // Default: enabled
   close_original_on_clear_context: true, // Default: enabled
   build_model: null, // Default: use session model
   yolo_model: null, // Default: use session model

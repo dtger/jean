@@ -1692,7 +1692,7 @@ export const GeneralPane: React.FC = () => {
             description="Automatically reopen the last worktree and session when switching projects"
           >
             <Switch
-              checked={preferences?.restore_last_session ?? false}
+              checked={preferences?.restore_last_session ?? true}
               onCheckedChange={checked => {
                 if (preferences) {
                   patchPreferences.mutate({

@@ -765,50 +765,6 @@ export function SessionChatModal({
                         size="sm"
                         className="h-7 px-2 text-xs"
                         onClick={() => {
-                          const { reviewResults, toggleReviewSidebar } =
-                            useChatStore.getState()
-                          const hasReviewResults =
-                            currentSessionId &&
-                            (reviewResults[currentSessionId] ||
-                              currentSession?.review_results)
-                          if (hasReviewResults) {
-                            if (
-                              currentSessionId &&
-                              !reviewResults[currentSessionId] &&
-                              currentSession?.review_results
-                            ) {
-                              useChatStore
-                                .getState()
-                                .setReviewResults(
-                                  currentSessionId,
-                                  currentSession.review_results
-                                )
-                            }
-                            toggleReviewSidebar()
-                          } else {
-                            window.dispatchEvent(
-                              new CustomEvent('magic-command', {
-                                detail: {
-                                  command: 'review',
-                                  sessionId: currentSessionId,
-                                },
-                              })
-                            )
-                          }
-                        }}
-                      >
-                        <Eye className="h-3 w-3" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Review</TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => {
                           useTerminalStore
                             .getState()
                             .toggleModalTerminal(worktreeId)
@@ -899,43 +855,6 @@ export function SessionChatModal({
                       </DropdownMenuItem>
                     )}
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onSelect={() => {
-                        const { reviewResults, toggleReviewSidebar } =
-                          useChatStore.getState()
-                        const hasReviewResults =
-                          currentSessionId &&
-                          (reviewResults[currentSessionId] ||
-                            currentSession?.review_results)
-                        if (hasReviewResults) {
-                          if (
-                            currentSessionId &&
-                            !reviewResults[currentSessionId] &&
-                            currentSession?.review_results
-                          ) {
-                            useChatStore
-                              .getState()
-                              .setReviewResults(
-                                currentSessionId,
-                                currentSession.review_results
-                              )
-                          }
-                          toggleReviewSidebar()
-                        } else {
-                          window.dispatchEvent(
-                            new CustomEvent('magic-command', {
-                              detail: {
-                                command: 'review',
-                                sessionId: currentSessionId,
-                              },
-                            })
-                          )
-                        }
-                      }}
-                    >
-                      <Eye className="h-4 w-4" />
-                      Review
-                    </DropdownMenuItem>
                     <DropdownMenuItem
                       onSelect={() =>
                         useTerminalStore
@@ -1219,44 +1138,6 @@ export function SessionChatModal({
               </div>
               <ScrollBar orientation="horizontal" className="h-1" />
             </ScrollArea>
-            {!isMobile && (
-              <div className="flex items-center gap-0.5">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        window.dispatchEvent(new CustomEvent('open-recap'))
-                      }
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground"
-                      aria-label="Recap"
-                    >
-                      <Sparkles
-                        className={cn('h-3 w-3', hasRecap && 'text-yellow-500')}
-                      />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>Recap (R)</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        window.dispatchEvent(new CustomEvent('open-plan'))
-                      }
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground"
-                      aria-label="Plan"
-                    >
-                      <FileText
-                        className={cn('h-3 w-3', hasPlan && 'text-yellow-500')}
-                      />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>Plan (P)</TooltipContent>
-                </Tooltip>
-              </div>
-            )}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button

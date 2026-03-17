@@ -1336,6 +1336,37 @@ export function ProjectCanvasView({ projectId }: ProjectCanvasViewProps) {
     [worktreeLabelTarget, queryClient, projectId]
   )
 
+  const handleLabelColorChange = useCallback(
+    async (labelName: string, newColor: string) => {
+      const worktreesToUpdate = worktreeSections
+        .filter(s => s.worktree.label?.name === labelName)
+        .map(s => s.worktree)
+
+      if (worktreesToUpdate.length === 0) return
+
+      const results = await Promise.allSettled(
+        worktreesToUpdate.map(wt =>
+          invoke('update_worktree_label', {
+            worktreeId: wt.id,
+            label: { name: labelName, color: newColor },
+          })
+        )
+      )
+
+      const failures = results.filter(r => r.status === 'rejected')
+      if (failures.length > 0) {
+        toast.error(
+          `Failed to update color for ${failures.length} worktree(s)`
+        )
+      }
+
+      queryClient.invalidateQueries({
+        queryKey: projectsQueryKeys.worktrees(projectId),
+      })
+    },
+    [worktreeSections, queryClient, projectId]
+  )
+
   // Keyboard navigation - disable when any modal/dialog is open
   const isModalOpen =
     !!selectedWorktreeModal ||
@@ -1939,6 +1970,7 @@ export function ProjectCanvasView({ projectId }: ProjectCanvasViewProps) {
         sessionId={null}
         currentLabel={worktreeLabelTarget?.currentLabel ?? null}
         onApply={handleWorktreeLabelApply}
+        onColorChange={handleLabelColorChange}
         extraLabels={worktreeSections
           .map(s => s.worktree.label)
           .filter((l): l is LabelData => !!l)}
