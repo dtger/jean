@@ -9,7 +9,11 @@ import { chatQueryKeys, persistEnqueue } from '@/services/chat'
 import { isTauri, saveWorktreePr, projectsQueryKeys } from '@/services/projects'
 import type { Project, Worktree } from '@/types/projects'
 import { preferencesQueryKeys } from '@/services/preferences'
-import type { AppPreferences, NotificationSound } from '@/types/preferences'
+import {
+  resolveMagicPromptProvider,
+  type AppPreferences,
+  type NotificationSound,
+} from '@/types/preferences'
 import { triggerImmediateGitPoll } from '@/services/git-status'
 import { isAskUserQuestion, isExitPlanMode } from '@/types/chat'
 import { playNotificationSound } from '@/lib/sounds'
@@ -34,6 +38,7 @@ import type {
   Session,
   SessionDigest,
   WorktreeSessions,
+  SaveContextResponse,
 } from '@/types/chat'
 import {
   applySessionSettingToSession,
@@ -108,6 +113,65 @@ function lookupSessionLabel(
 
   const parts = [projectName, worktreeName, sessionName].filter(Boolean)
   return parts.length > 0 ? parts.join(' / ') : ''
+}
+
+/**
+ * Look up worktree path and project display name from query cache for auto-save context.
+ */
+function findWorktreeForAutoSave(
+  queryClient: QueryClient,
+  worktreeId: string
+): { path: string; projectName: string } | null {
+  const worktreesData = queryClient.getQueriesData<Worktree[]>({
+    queryKey: [...projectsQueryKeys.all, 'worktrees'],
+  })
+  for (const [, worktrees] of worktreesData) {
+    const wt = worktrees?.find(w => w.id === worktreeId)
+    if (wt) {
+      // Resolve project display name (e.g., "royal-camel") instead of worktree name (e.g., "main")
+      const projects = queryClient.getQueryData<Project[]>(projectsQueryKeys.list())
+      const projectName = projects?.find(p => p.id === wt.project_id)?.name ?? wt.name
+      return { path: wt.path, projectName }
+    }
+  }
+  return null
+}
+
+/**
+ * Auto-save context after session completion (fire-and-forget).
+ * Reuses the same `generate_context_from_session` command as manual save.
+ * Silent: no toasts, errors only logged to console.
+ */
+async function autoSaveContext(params: {
+  sessionId: string
+  worktreeId: string
+  worktreePath: string
+  projectName: string
+  preferences: AppPreferences | undefined
+  queryClient: QueryClient
+}) {
+  try {
+    await invoke<SaveContextResponse>('generate_context_from_session', {
+      worktreePath: params.worktreePath,
+      worktreeId: params.worktreeId,
+      sourceSessionId: params.sessionId,
+      projectName: params.projectName,
+      customPrompt: params.preferences?.magic_prompts?.context_summary,
+      model: params.preferences?.magic_prompt_models?.context_summary_model,
+      customProfileName: resolveMagicPromptProvider(
+        params.preferences?.magic_prompt_providers,
+        'context_summary_provider',
+        params.preferences?.default_provider
+      ),
+      reasoningEffort:
+        params.preferences?.magic_prompt_efforts?.context_summary_effort ??
+        null,
+    })
+    // Silently invalidate cache — no toast for auto-save
+    params.queryClient.invalidateQueries({ queryKey: ['session-context'] })
+  } catch (err) {
+    console.warn('[AutoSave] Failed to auto-save context:', err)
+  }
 }
 
 /**
@@ -836,6 +900,29 @@ export default function useStreamingEvents({
           const reviewSound = (preferences?.review_sound ??
             'none') as NotificationSound
           playNotificationSound(reviewSound)
+        }
+
+        // Auto-save context (fire-and-forget, no blocking)
+        if (preferences?.auto_save_context !== false) {
+          const sessionData = queryClient.getQueryData<Session>(
+            chatQueryKeys.session(sessionId)
+          )
+          // +1 for the optimistic assistant message just added
+          const messageCount = (sessionData?.messages?.length ?? 0) + 1
+
+          if (messageCount >= 3) {
+            const wtInfo = findWorktreeForAutoSave(queryClient, worktreeId)
+            if (wtInfo) {
+              autoSaveContext({
+                sessionId,
+                worktreeId,
+                worktreePath: wtInfo.path,
+                projectName: wtInfo.projectName,
+                preferences,
+                queryClient,
+              })
+            }
+          }
         }
       }
 

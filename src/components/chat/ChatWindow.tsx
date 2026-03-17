@@ -101,6 +101,7 @@ import {
   VirtualizedMessageList,
   type VirtualizedMessageListHandle,
 } from './VirtualizedMessageList'
+import { RecentContexts } from './RecentContexts'
 import {
   extractImagePaths,
   extractTextFilePaths,
@@ -130,6 +131,11 @@ const GitDiffModal = lazy(() =>
 const LoadContextModal = lazy(() =>
   import('../magic/LoadContextModal').then(mod => ({
     default: mod.LoadContextModal,
+  }))
+)
+const LinkedProjectsModal = lazy(() =>
+  import('../magic/LinkedProjectsModal').then(mod => ({
+    default: mod.LinkedProjectsModal,
   }))
 )
 import {
@@ -1673,10 +1679,20 @@ export function ChatWindow({
       worktreeProjectId: worktree?.project_id,
     })
 
+  // Linked projects modal state
+  const linkedProjectsModalOpen = useUIStore(state => state.linkedProjectsModalOpen)
+  const handleLinkedProjects = useCallback(() => {
+    useUIStore.getState().setLinkedProjectsModalOpen(true)
+  }, [])
+  const handleLinkedProjectsModalChange = useCallback((open: boolean) => {
+    useUIStore.getState().setLinkedProjectsModalOpen(open)
+  }, [])
+
   // Listen for magic-command events from MagicModal
   useMagicCommands({
     handleSaveContext,
     handleLoadContext,
+    handleLinkedProjects,
     handleCommit,
     handleCommitAndPush: handleCommitAndPushWithPicker,
     handlePull: handlePullWithPicker,
@@ -2080,6 +2096,14 @@ export function ChatWindow({
                                 Loading...
                               </div>
                             ) : (
+                              <>
+                              {messages.length === 0 && !isSending && activeSessionId && (
+                                <RecentContexts
+                                  sessionId={activeSessionId}
+                                  queryClient={queryClient}
+                                  projectId={worktree?.project_id}
+                                />
+                              )}
                               <VirtualizedMessageList
                                 ref={virtualizedListRef}
                                 messages={messages}
@@ -2118,6 +2142,7 @@ export function ChatWindow({
                                 }
                                 completedDurationMs={completedDurationMs}
                               />
+                              </>
                             )}
                             {/* Streaming response + elapsed timer in one wrapper to avoid space-y-4 gap */}
                             {isSending && activeSessionId && (
@@ -2565,6 +2590,15 @@ export function ChatWindow({
             worktreePath={activeWorktreePath ?? null}
             activeSessionId={activeSessionId ?? null}
             projectName={worktree?.name ?? 'unknown-project'}
+            projectId={worktree?.project_id ?? null}
+          />
+        </Suspense>
+
+        {/* Linked Projects modal for managing cross-project links */}
+        <Suspense fallback={null}>
+          <LinkedProjectsModal
+            open={linkedProjectsModalOpen}
+            onOpenChange={handleLinkedProjectsModalChange}
             projectId={worktree?.project_id ?? null}
           />
         </Suspense>

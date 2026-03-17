@@ -3658,6 +3658,16 @@ fn parse_context_filename(path: &std::path::Path) -> Option<SavedContext> {
         return None;
     }
 
+    // Skip session-attached context files ({uuid}-context-{slug}.md)
+    if filename.contains("-context-") {
+        // Check if prefix before "-context-" looks like a UUID (36 chars with hyphens)
+        if let Some(prefix) = filename.split("-context-").next() {
+            if prefix.len() == 36 && prefix.chars().filter(|c| *c == '-').count() == 4 {
+                return None;
+            }
+        }
+    }
+
     // Get file metadata
     let metadata = std::fs::metadata(path).ok()?;
     let size = metadata.len();

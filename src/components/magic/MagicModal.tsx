@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Sparkles,
   Undo2,
+  Link2,
 } from 'lucide-react'
 import {
   Dialog,
@@ -63,6 +64,7 @@ import { useQueryClient } from '@tanstack/react-query'
 type MagicOption =
   | 'save-context'
   | 'load-context'
+  | 'linked-projects'
   | 'create-recap'
   | 'commit'
   | 'commit-and-push'
@@ -96,6 +98,7 @@ const CANVAS_ALLOWED_OPTIONS = new Set<MagicOption>([
   'merge',
   'merge-pr',
   'resolve-conflicts',
+  'linked-projects',
 ])
 
 /** Canvas options that navigate to worktree chat and dispatch a magic-command event */
@@ -135,6 +138,12 @@ function buildMagicColumns(hasOpenPr: boolean): MagicColumns {
           label: 'Load Context',
           icon: FolderOpen,
           key: 'L',
+        },
+        {
+          id: 'linked-projects',
+          label: 'Linked Projects',
+          icon: Link2,
+          key: 'K',
         },
         {
           id: 'create-recap',
@@ -241,6 +250,7 @@ function buildMagicColumns(hasOpenPr: boolean): MagicColumns {
 const KEY_TO_OPTION: Record<string, MagicOption> = {
   s: 'save-context',
   l: 'load-context',
+  k: 'linked-projects',
   t: 'create-recap',
   c: 'commit',
   p: 'commit-and-push',
@@ -821,6 +831,18 @@ ${resolveInstructions}`
           return
         }
         useUIStore.getState().setReleaseNotesModalOpen(true)
+        setMagicModalOpen(false)
+        return
+      }
+
+      // linked-projects only needs a project selected, not a worktree
+      if (option === 'linked-projects') {
+        if (!selectedProjectId) {
+          notify('No project selected', undefined, { type: 'error' })
+          setMagicModalOpen(false)
+          return
+        }
+        useUIStore.getState().setLinkedProjectsModalOpen(true)
         setMagicModalOpen(false)
         return
       }

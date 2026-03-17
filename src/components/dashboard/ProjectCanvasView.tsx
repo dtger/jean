@@ -105,6 +105,11 @@ const GitDiffModal = lazy(() =>
     default: mod.GitDiffModal,
   }))
 )
+const LinkedProjectsModal = lazy(() =>
+  import('@/components/magic/LinkedProjectsModal').then(mod => ({
+    default: mod.LinkedProjectsModal,
+  }))
+)
 import type { DiffRequest } from '@/types/git-diff'
 import { toast } from 'sonner'
 import { useTerminalStore } from '@/store/terminal-store'
@@ -1264,6 +1269,12 @@ export function ProjectCanvasView({ projectId }: ProjectCanvasViewProps) {
       window.removeEventListener('toggle-session-label', handleToggleLabel)
   }, [selectedWorktreeModal, selectedIndex, flatCards, worktreeSections])
 
+  // Linked projects modal (opened by MagicModal via UI store)
+  const linkedProjectsModalOpen = useUIStore(state => state.linkedProjectsModalOpen)
+  const handleLinkedProjectsModalChange = useCallback((open: boolean) => {
+    useUIStore.getState().setLinkedProjectsModalOpen(open)
+  }, [])
+
   // CMD+G: Open git diff for selected worktree
   useEffect(() => {
     if (!!selectedWorktreeModal || selectedIndex === null) return
@@ -2000,6 +2011,15 @@ export function ProjectCanvasView({ projectId }: ProjectCanvasViewProps) {
         onConfirm={handleConfirmCloseWorktree}
         branchName={closeWorktreeTarget?.branchName}
       />
+
+      {/* Linked Projects modal (triggered from MagicModal on canvas) */}
+      <Suspense fallback={null}>
+        <LinkedProjectsModal
+          open={linkedProjectsModalOpen}
+          onOpenChange={handleLinkedProjectsModalChange}
+          projectId={projectId}
+        />
+      </Suspense>
     </div>
   )
 }

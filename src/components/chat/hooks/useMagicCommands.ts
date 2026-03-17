@@ -13,6 +13,7 @@ export interface WorkflowRunDetail {
 interface MagicCommandHandlers {
   handleSaveContext: () => void
   handleLoadContext: () => void
+  handleLinkedProjects: () => void
   handleCommit: () => void
   handleCommitAndPush: () => void
   handlePull: () => void
@@ -45,6 +46,7 @@ interface UseMagicCommandsOptions extends MagicCommandHandlers {
 export function useMagicCommands({
   handleSaveContext,
   handleLoadContext,
+  handleLinkedProjects,
   handleCommit,
   handleCommitAndPush,
   handlePull,
@@ -63,6 +65,7 @@ export function useMagicCommands({
   const handlersRef = useRef<MagicCommandHandlers>({
     handleSaveContext,
     handleLoadContext,
+    handleLinkedProjects,
     handleCommit,
     handleCommitAndPush,
     handlePull,
@@ -82,6 +85,7 @@ export function useMagicCommands({
     handlersRef.current = {
       handleSaveContext,
       handleLoadContext,
+      handleLinkedProjects,
       handleCommit,
       handleCommitAndPush,
       handlePull,
@@ -116,6 +120,9 @@ export function useMagicCommands({
           break
         case 'load-context':
           handlers.handleLoadContext()
+          break
+        case 'linked-projects':
+          handlers.handleLinkedProjects()
           break
         case 'commit':
           handlers.handleCommit()

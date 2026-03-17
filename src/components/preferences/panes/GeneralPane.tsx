@@ -2042,6 +2042,22 @@ export const GeneralPane: React.FC = () => {
           </InlineField>
 
           <InlineField
+            label="Auto-save context"
+            description="Automatically save session context after each AI response"
+          >
+            <Switch
+              checked={preferences?.auto_save_context ?? true}
+              onCheckedChange={checked => {
+                if (preferences) {
+                  patchPreferences.mutate({
+                    auto_save_context: checked,
+                  })
+                }
+              }}
+            />
+          </InlineField>
+
+          <InlineField
             label="Restore last session on project switch"
             description="Automatically reopen the last worktree and session when switching projects"
           >

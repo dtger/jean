@@ -926,6 +926,7 @@ export interface AppPreferences {
   http_server_localhost_only: boolean // Bind to localhost only (more secure)
   http_server_token_required: boolean // Require token for web access (default true)
   removal_behavior: RemovalBehavior // What happens when closing sessions/worktrees: 'archive' or 'delete'
+  auto_save_context: boolean // Auto-save context after each session completion
   auto_pull_base_branch: boolean // Auto-pull base branch before creating a new worktree
   auto_archive_on_pr_merged: boolean // Auto-archive worktrees when their PR is merged
   debug_mode_enabled: boolean // Show debug panel in chat sessions
@@ -1490,6 +1491,7 @@ export const defaultPreferences: AppPreferences = {
   http_server_localhost_only: true, // Default to localhost-only for security
   http_server_token_required: true, // Default: require token for security
   removal_behavior: 'delete', // Default: delete (permanent)
+  auto_save_context: true, // Default: enabled
   auto_pull_base_branch: true, // Default: enabled
   auto_archive_on_pr_merged: true, // Default: enabled
   debug_mode_enabled: false, // Default: disabled

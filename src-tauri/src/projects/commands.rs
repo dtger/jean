@@ -218,6 +218,7 @@ pub async fn add_project(
         worktrees_dir: None,
         linear_api_key: None,
         linear_team_id: None,
+        linked_project_ids: Vec::new(),
     };
 
     data.add_project(project.clone());
@@ -377,6 +378,7 @@ pub async fn init_project(
         worktrees_dir: None,
         linear_api_key: None,
         linear_team_id: None,
+        linked_project_ids: Vec::new(),
     };
 
     data.add_project(project.clone());
@@ -430,6 +432,7 @@ pub async fn clone_project(
         worktrees_dir: None,
         linear_api_key: None,
         linear_team_id: None,
+        linked_project_ids: Vec::new(),
     };
 
     data.add_project(project.clone());
@@ -473,6 +476,11 @@ pub async fn remove_project(app: AppHandle, project_id: String) -> Result<(), St
     for worktree_id in &archived_worktree_ids {
         data.remove_worktree(worktree_id);
         log::trace!("Removed archived worktree: {worktree_id}");
+    }
+
+    // Clean up reciprocal linked project references
+    for other in &mut data.projects {
+        other.linked_project_ids.retain(|id| id != &project_id);
     }
 
     // Remove project
@@ -3988,6 +3996,7 @@ pub async fn update_project_settings(
     worktrees_dir: Option<String>,
     linear_api_key: Option<String>,
     linear_team_id: Option<String>,
+    linked_project_ids: Option<Vec<String>>,
 ) -> Result<Project, String> {
     log::trace!("Updating settings for project: {project_id}");
 
@@ -4058,7 +4067,54 @@ pub async fn update_project_settings(
         };
     }
 
-    let updated_project = project.clone();
+    // Handle linked_project_ids with bidirectional sync
+    if let Some(ids) = linked_project_ids {
+        // Filter out self-references and deduplicate
+        let clean_ids: Vec<String> = {
+            let mut seen = std::collections::HashSet::new();
+            ids.into_iter()
+                .filter(|id| id != &project_id && seen.insert(id.clone()))
+                .collect()
+        };
+
+        let old_ids = project.linked_project_ids.clone();
+        project.linked_project_ids = clean_ids.clone();
+
+        // Compute added and removed for reciprocal updates
+        let added: Vec<String> = clean_ids
+            .iter()
+            .filter(|id| !old_ids.contains(id))
+            .cloned()
+            .collect();
+        let removed: Vec<String> = old_ids
+            .iter()
+            .filter(|id| !clean_ids.contains(id))
+            .cloned()
+            .collect();
+
+        let pid = project_id.clone();
+
+        // Add reciprocal links for newly added projects
+        for add_id in &added {
+            if let Some(other) = data.find_project_mut(add_id) {
+                if !other.linked_project_ids.contains(&pid) {
+                    other.linked_project_ids.push(pid.clone());
+                }
+            }
+        }
+        // Remove reciprocal links for removed projects
+        for rem_id in &removed {
+            if let Some(other) = data.find_project_mut(rem_id) {
+                other.linked_project_ids.retain(|id| id != &pid);
+            }
+        }
+    }
+
+    // Re-fetch the project after potential mutations from bidirectional sync
+    let updated_project = data
+        .find_project(&project_id)
+        .ok_or_else(|| format!("Project not found after update: {project_id}"))?
+        .clone();
     save_projects_data(&app, &data)?;
 
     log::trace!("Successfully updated project settings");
@@ -7944,6 +8000,7 @@ pub async fn create_folder(
         worktrees_dir: None,
         linear_api_key: None,
         linear_team_id: None,
+        linked_project_ids: Vec::new(),
     };
 
     data.add_project(folder.clone());

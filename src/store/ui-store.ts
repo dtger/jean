@@ -35,6 +35,7 @@ interface UIState {
   remotePickerOpen: boolean
   remotePickerRepoPath: string | null
   loadContextModalOpen: boolean
+  linkedProjectsModalOpen: boolean
   magicModalOpen: boolean
   newWorktreeModalOpen: boolean
   newWorktreeModalDefaultTab: 'quick' | 'issues' | 'prs' | 'security' | null
@@ -103,6 +104,7 @@ interface UIState {
   ) => void
   closeRemotePicker: () => void
   setLoadContextModalOpen: (open: boolean) => void
+  setLinkedProjectsModalOpen: (open: boolean) => void
   setMagicModalOpen: (open: boolean) => void
   setNewWorktreeModalOpen: (open: boolean) => void
   setNewWorktreeModalDefaultTab: (
@@ -181,6 +183,7 @@ export const useUIStore = create<UIState>()(
       remotePickerOpen: false,
       remotePickerRepoPath: null,
       loadContextModalOpen: false,
+      linkedProjectsModalOpen: false,
       magicModalOpen: false,
       newWorktreeModalOpen: false,
       newWorktreeModalDefaultTab: null,
@@ -319,6 +322,12 @@ export const useUIStore = create<UIState>()(
           { loadContextModalOpen: open },
           undefined,
           'setLoadContextModalOpen'
+        ),
+      setLinkedProjectsModalOpen: open =>
+        set(
+          { linkedProjectsModalOpen: open },
+          undefined,
+          'setLinkedProjectsModalOpen'
         ),
 
       setMagicModalOpen: open =>

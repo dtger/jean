@@ -2370,6 +2370,7 @@ export function useUpdateProjectSettings() {
       defaultBranch,
       enabledMcpServers,
       knownMcpServers,
+      linkedProjectIds,
       customSystemPrompt,
       defaultProvider,
       defaultBackend,
@@ -2387,6 +2388,7 @@ export function useUpdateProjectSettings() {
       worktreesDir?: string
       linearApiKey?: string
       linearTeamId?: string
+      linkedProjectIds?: string[]
     }): Promise<Project> => {
       if (!isTauri()) {
         throw new Error('Not in Tauri context')
@@ -2404,6 +2406,7 @@ export function useUpdateProjectSettings() {
         worktreesDir,
         linearApiKey,
         linearTeamId,
+        linkedProjectIds,
       })
       logger.info('Project settings updated', { project })
       return project

@@ -156,6 +156,8 @@ pub struct AppPreferences {
     pub http_server_token_required: bool, // Require token for web access (default true)
     #[serde(default = "default_removal_behavior")]
     pub removal_behavior: String, // What happens when closing sessions/worktrees: archive, delete
+    #[serde(default = "default_auto_save_context")]
+    pub auto_save_context: bool, // Auto-save context after each session completion
     #[serde(default = "default_auto_pull_base_branch")]
     pub auto_pull_base_branch: bool, // Auto-pull base branch before creating a new worktree
     #[serde(default = "default_auto_archive_on_pr_merged")]
@@ -432,6 +434,10 @@ fn default_http_server_token_required() -> bool {
 
 fn default_removal_behavior() -> String {
     "delete".to_string()
+}
+
+fn default_auto_save_context() -> bool {
+    true // Enabled by default
 }
 
 fn default_auto_pull_base_branch() -> bool {
@@ -1105,6 +1111,7 @@ impl Default for AppPreferences {
             http_server_localhost_only: true, // Default to localhost-only for security
             http_server_token_required: default_http_server_token_required(),
             removal_behavior: default_removal_behavior(),
+            auto_save_context: default_auto_save_context(),
             auto_pull_base_branch: default_auto_pull_base_branch(),
             auto_archive_on_pr_merged: default_auto_archive_on_pr_merged(),
             debug_mode_enabled: false,
