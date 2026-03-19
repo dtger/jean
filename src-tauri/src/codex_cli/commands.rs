@@ -22,7 +22,7 @@ const GITHUB_API_ACCEPT: &str = "application/vnd.github+json";
 const GITHUB_API_VERSION: &str = "2022-11-28";
 
 /// Emergency fallback version when API fails AND no cache exists.
-const FALLBACK_CODEX_VERSION: &str = "0.1.2505301";
+const FALLBACK_CODEX_VERSION: &str = "0.116.0-alpha.12";
 const CODEX_VERSIONS_CACHE_FILE: &str = "codex-versions-cache.json";
 
 /// Extract version number from a tag like "v0.104.0" or "vrust-v0.104.0"
@@ -1092,6 +1092,10 @@ fn get_codex_target() -> Result<&'static str, String> {
 
 /// Fetch the latest Codex CLI version from GitHub API.
 ///
+/// Uses the releases list endpoint instead of /releases/latest because all
+/// Codex releases are pre-releases (alpha), and GitHub's /latest endpoint
+/// only returns non-prerelease versions.
+///
 /// Falls back to disk cache or hardcoded version if the API is unreachable.
 async fn fetch_latest_codex_version(app: &AppHandle) -> Result<String, String> {
     log::trace!("Fetching latest Codex CLI version");
@@ -1099,7 +1103,7 @@ async fn fetch_latest_codex_version(app: &AppHandle) -> Result<String, String> {
     let client = build_github_client()?;
     let token = resolve_github_api_token(app);
     let mut request = client
-        .get(format!("{CODEX_RELEASES_API}/latest"))
+        .get(format!("{CODEX_RELEASES_API}?per_page=10"))
         .header("Accept", GITHUB_API_ACCEPT)
         .header("X-GitHub-Api-Version", GITHUB_API_VERSION);
     if let Some(ref token) = token {
@@ -1108,17 +1112,19 @@ async fn fetch_latest_codex_version(app: &AppHandle) -> Result<String, String> {
 
     if let Ok(resp) = request.send().await {
         if resp.status().is_success() {
-            if let Ok(release) = resp.json::<GitHubRelease>().await {
-                let version = extract_version_from_tag(&release.tag_name);
-                log::trace!("Latest Codex CLI version: {version}");
-                return Ok(version);
+            if let Ok(releases) = resp.json::<Vec<GitHubRelease>>().await {
+                if let Some(release) = releases.first() {
+                    let version = extract_version_from_tag(&release.tag_name);
+                    log::trace!("Latest Codex CLI version: {version}");
+                    return Ok(version);
+                }
             }
         }
     }
 
     log::warn!("Failed to fetch latest Codex version from API, using fallback");
     if let Some(cached) = load_codex_versions_cache(app) {
-        if let Some(first) = cached.into_iter().find(|v| !v.prerelease) {
+        if let Some(first) = cached.into_iter().next() {
             return Ok(first.version);
         }
     }
@@ -1126,10 +1132,17 @@ async fn fetch_latest_codex_version(app: &AppHandle) -> Result<String, String> {
 }
 
 /// Find the download URL for a specific asset by searching recent releases
-async fn find_asset_url(version: &str, asset_name: &str) -> Result<String, String> {
+async fn find_asset_url(app: &AppHandle, version: &str, asset_name: &str) -> Result<String, String> {
     let client = build_github_client()?;
-    let response = client
+    let token = resolve_github_api_token(app);
+    let mut request = client
         .get(CODEX_RELEASES_API)
+        .header("Accept", GITHUB_API_ACCEPT)
+        .header("X-GitHub-Api-Version", GITHUB_API_VERSION);
+    if let Some(ref token) = token {
+        request = request.bearer_auth(token);
+    }
+    let response = request
         .send()
         .await
         .map_err(|e| format!("Failed to fetch releases: {e}"))?;
@@ -1188,7 +1201,7 @@ pub async fn install_codex_cli(app: AppHandle, version: Option<String>) -> Resul
     let (asset_name, is_zip) = (format!("codex-{target}.tar.gz"), false);
 
     // Find the download URL from the release assets
-    let download_url = find_asset_url(&version, &asset_name).await?;
+    let download_url = find_asset_url(&app, &version, &asset_name).await?;
     log::trace!("Downloading from: {download_url}");
 
     // Emit progress: downloading
