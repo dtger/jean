@@ -353,7 +353,7 @@ fn build_claude_args(
         }
         // If Off, don't send any thinking/effort settings (but still send custom profile if present)
     } else {
-        // Traditional thinking levels (Opus 4.5, Sonnet, Haiku)
+        // Traditional thinking levels (Sonnet, Haiku)
         if let Some(level) = thinking_level {
             let obj = settings_json.get_or_insert_with(|| serde_json::json!({}));
             if let Some(map) = obj.as_object_mut() {

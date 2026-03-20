@@ -908,7 +908,7 @@ export function ChatWindow({
       mcpServersDataRef,
       enabledMcpServersRef,
       selectedBackendRef,
-      scrollToBottom,
+      markAtBottom,
     })
 
   // Clear context approval handler for PlanDialog
@@ -1783,6 +1783,7 @@ export function ChatWindow({
     createSession,
     queryClient,
     scrollToBottom,
+    markAtBottom,
     inputRef,
     pendingPlanMessage,
     projectIdRef,

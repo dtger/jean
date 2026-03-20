@@ -117,11 +117,12 @@ export function UnreadBell({ title, hideTitle }: UnreadBellProps) {
       window.removeEventListener('command:open-unread-sessions', handler)
   }, [])
 
-  // Reset open state when all sessions are read so the popover
-  // doesn't auto-reappear when a new unread session arrives
-  useEffect(() => {
-    if (unreadCount === 0) setOpen(false)
-  }, [unreadCount])
+  // Synchronous reset: guarantees open=false is committed before unreadCount
+  // can bounce back (e.g. optimistic update overwritten by in-flight refetch).
+  // A useEffect would fire after render, missing fast 1→0→1 transitions.
+  if (unreadCount === 0 && open) {
+    setOpen(false)
+  }
 
   // Invalidate cache each time popover opens
   useEffect(() => {

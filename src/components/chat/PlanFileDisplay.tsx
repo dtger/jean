@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronRight, FileText, AlertCircle } from 'lucide-react'
 import { readPlanFile } from '@/services/chat'
@@ -7,7 +7,6 @@ import { cn } from '@/lib/utils'
 import { getFilename } from '@/lib/path-utils'
 import {
   Collapsible,
-  CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
 
@@ -32,8 +31,9 @@ interface PlanDisplayInlineProps extends PlanDisplayBaseProps {
 type PlanDisplayProps = PlanDisplayFileProps | PlanDisplayInlineProps
 
 /**
- * Display plan content in a collapsible section
- * Can render inline content directly or fetch from a file path
+ * Display plan content in a collapsible section.
+ * Uses conditional rendering (no CSS animation) to avoid scroll timing races
+ * when plans collapse programmatically (approval or follow-up message).
  */
 export function PlanDisplay({
   content: inlineContent,
@@ -42,21 +42,14 @@ export function PlanDisplay({
   defaultCollapsed = false,
 }: PlanDisplayProps) {
   const [isOpen, setIsOpen] = useState(!defaultCollapsed)
-  // Track whether collapse is programmatic (approval/follow-up) vs user-initiated click.
-  // Programmatic collapses skip the 150ms CSS animation to avoid scroll timing races.
-  const [skipAnimation, setSkipAnimation] = useState(defaultCollapsed)
 
-  // Sync collapse when plan gets approved (defaultCollapsed transitions to true)
-  useEffect(() => {
-    if (defaultCollapsed) {
-      setSkipAnimation(true)
-      setIsOpen(false)
-    }
-  }, [defaultCollapsed])
-
-  const handleOpenChange = (open: boolean) => {
-    setSkipAnimation(false) // user-initiated toggle keeps animation
-    setIsOpen(open)
+  // Render-time sync: when defaultCollapsed transitions to true, close immediately
+  // in the same render frame (no useEffect delay). React re-renders before commit.
+  // See: https://react.dev/reference/react/useState#storing-information-from-previous-renders
+  const [prevDefaultCollapsed, setPrevDefaultCollapsed] = useState(defaultCollapsed)
+  if (defaultCollapsed && !prevDefaultCollapsed) {
+    setPrevDefaultCollapsed(true)
+    setIsOpen(false)
   }
 
   // Extract filename from path for display (only for file-based plans)
@@ -113,7 +106,7 @@ export function PlanDisplay({
   return (
     <Collapsible
       open={isOpen}
-      onOpenChange={handleOpenChange}
+      onOpenChange={setIsOpen}
       className={cn(
         'rounded-md border border-border/50 bg-muted/30',
         className
@@ -134,13 +127,13 @@ export function PlanDisplay({
           )}
         />
       </CollapsibleTrigger>
-      <CollapsibleContent skipAnimation={skipAnimation}>
+      {isOpen && (
         <div className="border-t border-border/50 px-3 py-3">
           <div>
             <Markdown className="text-sm">{content}</Markdown>
           </div>
         </div>
-      </CollapsibleContent>
+      )}
     </Collapsible>
   )
 }

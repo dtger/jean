@@ -117,17 +117,26 @@ import {
   setRemotePollInterval,
 } from '@/services/git-status'
 
-/** Get [command, args] for updating a PATH-mode CLI, respecting package manager */
+/** Get [command, args] for updating a PATH-mode CLI, respecting package manager.
+ *  Returns null when the CLI has no self-update command and no known package manager. */
 function getPathUpdateAction(
   cliPath: string | null | undefined,
   packageManager: string | null | undefined,
   brewPkg: string,
-  selfUpdateArgs: string[],
-): [string, string[]] {
+  selfUpdateArgs: string[] | null,
+  npmPkg?: string,
+  targetVersion?: string,
+): [string, string[]] | null {
   if (packageManager === 'homebrew') {
     return ['brew', ['upgrade', brewPkg]]
   }
-  return [cliPath ?? brewPkg, selfUpdateArgs]
+  if (selfUpdateArgs) {
+    return [cliPath ?? brewPkg, selfUpdateArgs]
+  }
+  if (packageManager === 'npm' && npmPkg && targetVersion) {
+    return ['npm', ['install', '-g', `${npmPkg}@${targetVersion}`]]
+  }
+  return null
 }
 
 interface CleanupResult {
@@ -788,8 +797,12 @@ export const GeneralPane: React.FC = () => {
                         size="sm"
                         disabled={!claudeHasUpdate}
                         onClick={() => {
-                          const [cmd, args] = getPathUpdateAction(cliStatus.path, pathDetection?.package_manager, 'claude-code', ['update'])
-                          openCliLoginModal('claude', cmd, args)
+                          const action = getPathUpdateAction(cliStatus.path, pathDetection?.package_manager, 'claude-code', ['update'])
+                          if (action) {
+                            openCliLoginModal('claude', action[0], action[1])
+                          } else {
+                            openCliUpdateModal('claude')
+                          }
                         }}
                       >
                         {claudeHasUpdate ? `Update to ${claudeLatestStable?.version}` : 'Up to date'}
@@ -914,8 +927,12 @@ export const GeneralPane: React.FC = () => {
                         size="sm"
                         disabled={!ghHasUpdate}
                         onClick={() => {
-                          const [cmd, args] = getPathUpdateAction(ghStatus.path, ghPathDetection?.package_manager, 'gh', ['upgrade'])
-                          openCliLoginModal('gh', cmd, args)
+                          const action = getPathUpdateAction(ghStatus.path, ghPathDetection?.package_manager, 'gh', null)
+                          if (action) {
+                            openCliLoginModal('gh', action[0], action[1])
+                          } else {
+                            openCliUpdateModal('gh')
+                          }
                         }}
                       >
                         {ghHasUpdate ? `Update to ${ghLatestStable?.version}` : 'Up to date'}
@@ -1047,8 +1064,12 @@ export const GeneralPane: React.FC = () => {
                         size="sm"
                         disabled={!codexHasUpdate}
                         onClick={() => {
-                          const [cmd, args] = getPathUpdateAction(codexStatus.path, codexPathDetection?.package_manager, 'codex', ['update'])
-                          openCliLoginModal('codex', cmd, args)
+                          const action = getPathUpdateAction(codexStatus.path, codexPathDetection?.package_manager, 'codex', null, '@openai/codex', codexLatestStable?.version)
+                          if (action) {
+                            openCliLoginModal('codex', action[0], action[1])
+                          } else {
+                            openCliUpdateModal('codex')
+                          }
                         }}
                       >
                         {codexHasUpdate ? `Update to ${codexLatestStable?.version}` : 'Up to date'}
@@ -1180,8 +1201,12 @@ export const GeneralPane: React.FC = () => {
                         size="sm"
                         disabled={!opencodeHasUpdate}
                         onClick={() => {
-                          const [cmd, args] = getPathUpdateAction(opencodeStatus.path, opencodePathDetection?.package_manager, 'opencode', ['upgrade'])
-                          openCliLoginModal('opencode', cmd, args)
+                          const action = getPathUpdateAction(opencodeStatus.path, opencodePathDetection?.package_manager, 'opencode', ['upgrade'])
+                          if (action) {
+                            openCliLoginModal('opencode', action[0], action[1])
+                          } else {
+                            openCliUpdateModal('opencode')
+                          }
                         }}
                       >
                         {opencodeHasUpdate ? `Update to ${opencodeLatestStable?.version}` : 'Up to date'}

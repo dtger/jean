@@ -46,6 +46,11 @@ const CLI_BINARY_NAMES: Record<CliUpdateInfo['type'], string> = {
   opencode: 'opencode',
 }
 
+/** Map CLI type to its npm package name (for npm-installed CLIs without self-update) */
+const NPM_PACKAGE_NAMES: Partial<Record<CliUpdateInfo['type'], string>> = {
+  codex: '@openai/codex',
+}
+
 const CLI_DISPLAY_NAMES: Record<CliUpdateInfo['type'], string> = {
   claude: 'Claude CLI',
   gh: 'GitHub CLI',
@@ -298,6 +303,14 @@ function showUpdateToasts(updates: CliUpdateInfo[]) {
                 `[CliVersionCheck] PATH-mode update: type=${update.type} path=${update.cliPath} args=${pathUpdateArgs}`
               )
               openCliLoginModal(update.type, update.cliPath, pathUpdateArgs)
+            } else if (update.packageManager === 'npm') {
+              const npmPkg = NPM_PACKAGE_NAMES[update.type]
+              if (npmPkg) {
+                logger.debug(`[CliVersionCheck] npm update: npm install -g ${npmPkg}@${update.latestVersion}`)
+                openCliLoginModal(update.type, 'npm', ['install', '-g', `${npmPkg}@${update.latestVersion}`])
+              } else {
+                openCliUpdateModal(update.type)
+              }
             } else {
               openCliUpdateModal(update.type)
             }

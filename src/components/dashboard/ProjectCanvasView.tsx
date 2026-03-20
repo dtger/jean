@@ -19,7 +19,7 @@ import {
   FileJson,
   Clock3,
   GitBranch,
-  MessageSquare,
+  GitPullRequestArrow,
   Code,
   ExternalLink,
   Folder,
@@ -389,6 +389,12 @@ function WorktreeSectionHeader({
                     <span className="max-w-40 truncate">{displayBranch}</span>
                   </span>
                 )}
+                {worktree.pr_number && (
+                  <span className="hidden items-center gap-1 rounded-full border border-border/50 px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground sm:inline-flex">
+                    <GitPullRequestArrow className="h-2.5 w-2.5" />
+                    #{worktree.pr_number}
+                  </span>
+                )}
                 {worktree.label && (
                   <span
                     className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium"
@@ -425,10 +431,6 @@ function WorktreeSectionHeader({
           </div>
           {showDetails && sessionMetrics && (
             <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-              <span className="inline-flex items-center gap-1 rounded bg-muted/50 border border-border/50 px-2 py-0.5">
-                <MessageSquare className="h-3 w-3" />
-                {sessionMetrics.totalCount} sessions
-              </span>
               {sessionMetrics.reviewCount > 0 && (
                 <span className="rounded  bg-green-500/10 px-2 py-0.5 text-green-600">
                   {sessionMetrics.reviewCount} review

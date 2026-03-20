@@ -20,19 +20,13 @@ function CollapsibleTrigger({
 
 function CollapsibleContent({
   className,
-  skipAnimation,
   ...props
-}: React.ComponentProps<typeof CollapsiblePrimitive.CollapsibleContent> & {
-  skipAnimation?: boolean
-}) {
+}: React.ComponentProps<typeof CollapsiblePrimitive.CollapsibleContent>) {
   return (
     <CollapsiblePrimitive.CollapsibleContent
       data-slot="collapsible-content"
       className={cn(
-        'overflow-hidden',
-        skipAnimation
-          ? '[animation-duration:0s]'
-          : 'data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down',
+        'overflow-hidden data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down',
         className
       )}
       {...props}

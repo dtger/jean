@@ -193,7 +193,7 @@ function buildMagicColumns(hasOpenPr: boolean): MagicColumns {
         { id: 'review', label: 'Review', icon: Eye, key: 'R' },
         {
           id: 'review-comments',
-          label: 'Review Comments',
+          label: 'PR Comments',
           icon: MessageSquare,
           key: 'V',
         },

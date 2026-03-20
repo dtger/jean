@@ -84,6 +84,7 @@ import {
   useOpenBranchOnGitHub,
 } from '@/services/projects'
 import { getOpenInDefaultLabel } from '@/types/preferences'
+import { DEFAULT_KEYBINDINGS, formatShortcutDisplay } from '@/types/keybindings'
 import {
   getResumeCommand,
   statusConfig,
@@ -236,6 +237,12 @@ export function SessionChatModal({
     const terminals = state.terminals[worktreeId] ?? []
     return terminals.some(t => state.runningTerminals.has(t.id))
   })
+  const terminalShortcut = formatShortcutDisplay(
+    preferences?.keybindings?.toggle_terminal ?? DEFAULT_KEYBINDINGS.toggle_terminal
+  )
+  const runShortcut = formatShortcutDisplay(
+    preferences?.keybindings?.execute_run ?? DEFAULT_KEYBINDINGS.execute_run
+  )
   const createSession = useCreateSession()
 
   // Horizontal scroll on session tabs
@@ -790,7 +797,7 @@ export function SessionChatModal({
                         <Terminal className="h-3 w-3" />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>Terminal</TooltipContent>
+                    <TooltipContent>Terminal{' '}<kbd className="ml-1 text-[0.625rem] opacity-60">{terminalShortcut}</kbd></TooltipContent>
                   </Tooltip>
                   {runScripts.length === 1 && (
                     <Tooltip>
@@ -804,7 +811,7 @@ export function SessionChatModal({
                           <Play className={`h-3 w-3 ${hasRunningTerminal ? 'text-yellow-400 animate-icon-glow' : ''}`} />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>{hasRunningTerminal ? 'Running' : 'Run'}</TooltipContent>
+                      <TooltipContent>{hasRunningTerminal ? 'Running' : 'Run'}{' '}<kbd className="ml-1 text-[0.625rem] opacity-60">{runShortcut}</kbd></TooltipContent>
                     </Tooltip>
                   )}
                   {runScripts.length > 1 && (
@@ -820,7 +827,7 @@ export function SessionChatModal({
                             <Play className={`h-3 w-3 ${hasRunningTerminal ? 'text-yellow-400 animate-icon-glow' : ''}`} />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>{hasRunningTerminal ? 'Running' : 'Run first command'}</TooltipContent>
+                        <TooltipContent>{hasRunningTerminal ? 'Running' : 'Run first command'}{' '}<kbd className="ml-1 text-[0.625rem] opacity-60">{runShortcut}</kbd></TooltipContent>
                       </Tooltip>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
