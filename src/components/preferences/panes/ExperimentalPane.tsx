@@ -96,7 +96,7 @@ export const ExperimentalPane: React.FC = () => {
                 }
               }}
             >
-              <SelectTrigger>
+              <SelectTrigger className="min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

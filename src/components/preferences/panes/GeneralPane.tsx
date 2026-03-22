@@ -855,7 +855,7 @@ export const GeneralPane: React.FC = () => {
                   value={preferences?.claude_cli_source ?? 'jean'}
                   onValueChange={handleClaudeSourceChange}
                 >
-                  <SelectTrigger className="w-40">
+                  <SelectTrigger className="w-96">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -985,7 +985,7 @@ export const GeneralPane: React.FC = () => {
                   value={preferences?.gh_cli_source ?? 'jean'}
                   onValueChange={handleGhSourceChange}
                 >
-                  <SelectTrigger className="w-40">
+                  <SelectTrigger className="w-96">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1122,7 +1122,7 @@ export const GeneralPane: React.FC = () => {
                   value={preferences?.codex_cli_source ?? 'jean'}
                   onValueChange={handleCodexSourceChange}
                 >
-                  <SelectTrigger className="w-40">
+                  <SelectTrigger className="w-96">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1259,7 +1259,7 @@ export const GeneralPane: React.FC = () => {
                   value={preferences?.opencode_cli_source ?? 'jean'}
                   onValueChange={handleOpencodeSourceChange}
                 >
-                  <SelectTrigger className="w-40">
+                  <SelectTrigger className="w-96">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1289,7 +1289,7 @@ export const GeneralPane: React.FC = () => {
               value={effectiveBackend}
               onValueChange={handleBackendChange}
             >
-              <SelectTrigger>
+              <SelectTrigger className="min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1320,7 +1320,7 @@ export const GeneralPane: React.FC = () => {
                 patchPreferences.mutate({ default_execution_mode: value })
               }}
             >
-              <SelectTrigger>
+              <SelectTrigger className="min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1622,7 +1622,7 @@ export const GeneralPane: React.FC = () => {
               value={preferences?.selected_model ?? 'opus'}
               onValueChange={handleModelChange}
             >
-              <SelectTrigger>
+              <SelectTrigger className="min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1643,7 +1643,7 @@ export const GeneralPane: React.FC = () => {
               value={preferences?.thinking_level ?? 'off'}
               onValueChange={handleThinkingLevelChange}
             >
-              <SelectTrigger>
+              <SelectTrigger className="min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1664,7 +1664,7 @@ export const GeneralPane: React.FC = () => {
               value={preferences?.default_effort_level ?? 'high'}
               onValueChange={handleEffortLevelChange}
             >
-              <SelectTrigger>
+              <SelectTrigger className="min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1711,7 +1711,7 @@ export const GeneralPane: React.FC = () => {
               value={preferences?.selected_codex_model ?? 'gpt-5.4'}
               onValueChange={handleCodexModelChange}
             >
-              <SelectTrigger>
+              <SelectTrigger className="min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1732,7 +1732,7 @@ export const GeneralPane: React.FC = () => {
               value={preferences?.default_codex_reasoning_effort ?? 'high'}
               onValueChange={handleCodexReasoningChange}
             >
-              <SelectTrigger>
+              <SelectTrigger className="min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1875,7 +1875,7 @@ export const GeneralPane: React.FC = () => {
                 value={preferences?.editor ?? 'zed'}
                 onValueChange={handleEditorChange}
               >
-                <SelectTrigger>
+                <SelectTrigger className="min-w-96">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -1898,7 +1898,7 @@ export const GeneralPane: React.FC = () => {
                 value={preferences?.terminal ?? 'terminal'}
                 onValueChange={handleTerminalChange}
               >
-                <SelectTrigger>
+                <SelectTrigger className="min-w-96">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -1921,7 +1921,7 @@ export const GeneralPane: React.FC = () => {
                 value={preferences?.open_in ?? 'editor'}
                 onValueChange={handleOpenInChange}
               >
-                <SelectTrigger>
+                <SelectTrigger className="min-w-96">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -1943,7 +1943,7 @@ export const GeneralPane: React.FC = () => {
               value={String(preferences?.git_poll_interval ?? 60)}
               onValueChange={handleGitPollIntervalChange}
             >
-              <SelectTrigger>
+              <SelectTrigger className="min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1964,7 +1964,7 @@ export const GeneralPane: React.FC = () => {
               value={String(preferences?.remote_poll_interval ?? 60)}
               onValueChange={handleRemotePollIntervalChange}
             >
-              <SelectTrigger>
+              <SelectTrigger className="min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1989,7 +1989,7 @@ export const GeneralPane: React.FC = () => {
               value={preferences?.waiting_sound ?? 'none'}
               onValueChange={handleWaitingSoundChange}
             >
-              <SelectTrigger>
+              <SelectTrigger className="min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -2010,7 +2010,7 @@ export const GeneralPane: React.FC = () => {
               value={preferences?.review_sound ?? 'none'}
               onValueChange={handleReviewSoundChange}
             >
-              <SelectTrigger>
+              <SelectTrigger className="min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -2148,7 +2148,7 @@ export const GeneralPane: React.FC = () => {
                 }
               }}
             >
-              <SelectTrigger>
+              <SelectTrigger className="min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -2185,7 +2185,7 @@ export const GeneralPane: React.FC = () => {
               value={String(preferences?.archive_retention_days ?? 30)}
               onValueChange={handleArchiveRetentionChange}
             >
-              <SelectTrigger>
+              <SelectTrigger className="min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
