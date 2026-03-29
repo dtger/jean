@@ -33,6 +33,10 @@ pub fn spawn_terminal(
         command, command_args
     );
 
+    // Ensure the full user PATH is available (macOS GUI apps inherit a minimal PATH)
+    #[cfg(target_os = "macos")]
+    crate::platform::ensure_macos_path();
+
     let pty_system = native_pty_system();
 
     // Guard against degenerate dimensions that crash portable_pty
@@ -88,7 +92,10 @@ pub fn spawn_terminal(
             c
         }
     } else {
-        CommandBuilder::new(&shell)
+        let mut c = CommandBuilder::new(&shell);
+        #[cfg(not(windows))]
+        c.arg("-l");
+        c
     };
     // Use the requested working directory if it exists, otherwise fall back to
     // the system temp directory. This is critical on Windows where `/tmp` doesn't
