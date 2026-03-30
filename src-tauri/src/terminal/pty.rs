@@ -86,7 +86,7 @@ pub fn spawn_terminal(
             }
             #[cfg(not(windows))]
             {
-                c.arg("-c");
+                c.arg("-lc");
                 c.arg(run_command);
             }
             c
