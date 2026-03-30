@@ -402,9 +402,13 @@ export const MessageItem = memo(function MessageItem({
                           />
                         )
                       case 'askUserQuestion': {
+                        // Question is answered if: (1) follow-up user message exists (Claude),
+                        // (2) ephemeral Zustand state says so, or (3) tool has output (OpenCode —
+                        // the tool_result is persisted in the message, surviving reloads)
                         const isAnswered =
                           hasFollowUpMessage ||
-                          isQuestionAnswered(message.session_id, item.tool.id)
+                          isQuestionAnswered(message.session_id, item.tool.id) ||
+                          item.tool.output != null
                         const input = item.tool.input as {
                           questions: Question[]
                         }
@@ -413,7 +417,7 @@ export const MessageItem = memo(function MessageItem({
                             toolCallId={item.tool.id}
                             questions={input.questions}
                             introText={item.introText}
-                            hasFollowUpMessage={hasFollowUpMessage}
+                            hasFollowUpMessage={hasFollowUpMessage || item.tool.output != null}
                             isSkipped={areQuestionsSkipped(message.session_id)}
                             onSubmit={(toolCallId, answers) =>
                               onQuestionAnswer(

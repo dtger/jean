@@ -278,7 +278,13 @@ export function buildTimeline(
       if (!toolCall) continue
 
       // Handle special tools
-      if (toolCall.name === 'AskUserQuestion') {
+      if (
+        (toolCall.name === 'AskUserQuestion' || toolCall.name === 'question') &&
+        typeof toolCall.input === 'object' &&
+        toolCall.input !== null &&
+        'questions' in toolCall.input &&
+        Array.isArray((toolCall.input as { questions: unknown }).questions)
+      ) {
         // Skip if we've already processed this AskUserQuestion
         if (renderedAskUserQuestions.has(toolCall.id)) continue
         renderedAskUserQuestions.add(toolCall.id)

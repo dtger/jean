@@ -1049,8 +1049,34 @@ export const useChatStore = create<ChatUIState>()(
         set(
           state => {
             const existing = state.activeToolCalls[sessionId] ?? []
-            // Deduplicate by tool ID - NDJSON sync can emit same event multiple times
-            if (existing.some(tc => tc.id === toolCall.id)) {
+            const existingIndex = existing.findIndex(
+              tc => tc.id === toolCall.id
+            )
+            if (existingIndex !== -1) {
+              // Already exists — update input if the new one has richer data
+              // (e.g., enriched question data replacing an empty placeholder)
+              const old = existing[existingIndex]!
+              const oldEmpty =
+                old.input == null ||
+                (typeof old.input === 'object' &&
+                  Object.keys(old.input as object).length === 0)
+              const newHasData =
+                toolCall.input != null &&
+                typeof toolCall.input === 'object' &&
+                Object.keys(toolCall.input as object).length > 0
+              if (oldEmpty && newHasData) {
+                const updated = [...existing]
+                updated[existingIndex] = {
+                  ...old,
+                  input: toolCall.input,
+                }
+                return {
+                  activeToolCalls: {
+                    ...state.activeToolCalls,
+                    [sessionId]: updated,
+                  },
+                }
+              }
               return state
             }
             return {

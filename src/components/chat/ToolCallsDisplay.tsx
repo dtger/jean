@@ -20,7 +20,14 @@ function mergeAskUserQuestions(tools: ToolCall[]): Question[] {
       const key = q.header ?? q.question
       if (!seenHeaders.has(key)) {
         seenHeaders.add(key)
-        merged.push(q)
+        // Normalize OpenCode's "multiple" field to "multiSelect"
+        const normalized: Question = {
+          ...q,
+          multiSelect:
+            q.multiSelect ??
+            (q as unknown as Record<string, unknown>).multiple === true,
+        }
+        merged.push(normalized)
       }
     }
   }
@@ -79,9 +86,11 @@ export const ToolCallsDisplay = memo(function ToolCallsDisplay({
   // Separate special tools from regular tools
   // Note: ExitPlanMode is handled separately outside this component (after content)
   // Note: Edit tools are handled by EditedFilesDisplay at the bottom of the message
-  const questionTools = toolCalls.filter(isAskUserQuestion)
+  const isQuestionTool = (t: ToolCall) =>
+    isAskUserQuestion(t) || t.name === 'question'
+  const questionTools = toolCalls.filter(isQuestionTool)
   const otherTools = toolCalls.filter(
-    t => !isAskUserQuestion(t) && !isExitPlanMode(t)
+    t => !isQuestionTool(t) && !isExitPlanMode(t)
   )
 
   // Merge multiple AskUserQuestion calls into one (Claude sometimes emits duplicates)
@@ -132,7 +141,7 @@ export const ToolCallsDisplay = memo(function ToolCallsDisplay({
           key={mergedToolId}
           toolCallId={mergedToolId}
           questions={mergedQuestions}
-          hasFollowUpMessage={hasFollowUpMessage}
+          hasFollowUpMessage={hasFollowUpMessage || questionTools.some(t => t.output != null)}
           isSkipped={areQuestionsSkipped?.(sessionId) ?? false}
           onSubmit={(toolCallId, answers) =>
             onQuestionAnswer?.(toolCallId, answers, mergedQuestions)
@@ -141,12 +150,14 @@ export const ToolCallsDisplay = memo(function ToolCallsDisplay({
           readOnly={
             hasFollowUpMessage ||
             isQuestionAnswered(sessionId, mergedToolId) ||
-            areQuestionsSkipped?.(sessionId)
+            areQuestionsSkipped?.(sessionId) ||
+            questionTools.some(t => t.output != null)
           }
           submittedAnswers={
             hasFollowUpMessage ||
             isQuestionAnswered(sessionId, mergedToolId) ||
-            areQuestionsSkipped?.(sessionId)
+            areQuestionsSkipped?.(sessionId) ||
+            questionTools.some(t => t.output != null)
               ? getSubmittedAnswers(sessionId, mergedToolId)
               : undefined
           }

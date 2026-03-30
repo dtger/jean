@@ -619,7 +619,7 @@ pub fn parse_run_to_message(lines: &[String], run: &RunEntry) -> Result<ChatMess
         let errored_blocking: std::collections::HashSet<String> = tool_calls
             .iter()
             .filter(|tc| {
-                (tc.name == "AskUserQuestion" || tc.name == "ExitPlanMode")
+                (tc.name == "AskUserQuestion" || tc.name == "ExitPlanMode" || tc.name == "question")
                     && errored_tool_ids.contains(&tc.id)
             })
             .map(|tc| tc.id.clone())
@@ -628,7 +628,7 @@ pub fn parse_run_to_message(lines: &[String], run: &RunEntry) -> Result<ChatMess
         if !errored_blocking.is_empty() {
             // Only filter if non-errored blocking tools remain — never remove all
             let has_non_errored_blocking = tool_calls.iter().any(|tc| {
-                (tc.name == "AskUserQuestion" || tc.name == "ExitPlanMode")
+                (tc.name == "AskUserQuestion" || tc.name == "ExitPlanMode" || tc.name == "question")
                     && !errored_tool_ids.contains(&tc.id)
             });
 

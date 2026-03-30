@@ -229,19 +229,29 @@ export const StreamingMessage = memo(function StreamingMessage({
                               sessionId,
                               item.tool.id
                             )
-                            const input = item.tool.input as {
-                              questions: Question[]
+                            const rawInput = item.tool.input as {
+                              questions: Array<
+                                Question & { multiple?: boolean }
+                              >
                             }
+                            // Normalize OpenCode's "multiple" → "multiSelect"
+                            const normalizedQuestions = rawInput.questions.map(
+                              q => ({
+                                ...q,
+                                multiSelect:
+                                  q.multiSelect ?? q.multiple === true,
+                              })
+                            )
                             return (
                               <AskUserQuestion
                                 toolCallId={item.tool.id}
-                                questions={input.questions}
+                                questions={normalizedQuestions}
                                 introText={item.introText}
                                 onSubmit={(toolCallId, answers) =>
                                   onQuestionAnswer(
                                     toolCallId,
                                     answers,
-                                    input.questions
+                                    normalizedQuestions
                                   )
                                 }
                                 onSkip={onQuestionSkip}

@@ -297,12 +297,21 @@ export default function useStreamingEvents({
 
     const unlistenToolUse = listen<ToolUseEvent>('chat:tool_use', event => {
       const { session_id, id, name, input, parent_tool_use_id } = event.payload
-      addToolCall(session_id, { id, name, input, parent_tool_use_id })
+      const toolCall = { id, name, input, parent_tool_use_id }
+      addToolCall(session_id, toolCall)
 
       // Auto-switch Jean's mode when Claude enters plan mode
       if (name === 'EnterPlanMode') {
         useChatStore.getState().setExecutionMode(session_id, 'plan')
       }
+
+      // Note: Do NOT pauseSession here for question tools.
+      // For OpenCode, the HTTP POST is still in-flight (blocking until answered).
+      // Pausing here would clear sendingSessionIds, unmounting StreamingMessage
+      // before any persisted message exists — leaving the question UI with nowhere
+      // to render. Instead, let StreamingMessage render the question inline via
+      // buildTimeline(). When the user answers, the POST unblocks, chat:done fires,
+      // and the normal completion flow handles pause/complete.
     })
 
     const unlistenToolBlock = listen<ToolBlockEvent>(
@@ -524,7 +533,7 @@ export default function useStreamingEvents({
       // This determines whether to show "waiting" status in the UI
       const hasUnansweredBlockingTool = effectiveToolCalls?.some(
         tc =>
-          (isAskUserQuestion(tc) || isExitPlanMode(tc)) &&
+          (isAskUserQuestion(tc) || isExitPlanMode(tc) || tc.name === 'question') &&
           !isQuestionAnswered(sessionId, tc.id)
       )
 
@@ -564,7 +573,7 @@ export default function useStreamingEvents({
           } = useChatStore.getState()
           for (const tc of effectiveToolCalls ?? []) {
             if (
-              (isAskUserQuestion(tc) || isExitPlanMode(tc)) &&
+              (isAskUserQuestion(tc) || isExitPlanMode(tc) || tc.name === 'question') &&
               !isQuestionAnswered(sessionId, tc.id)
             ) {
               markQuestionAnswered(sessionId, tc.id, [])
@@ -631,7 +640,8 @@ export default function useStreamingEvents({
           const isOnlyExitPlanMode =
             effectiveToolCalls?.every(
               tc =>
-                !isAskUserQuestion(tc) || isQuestionAnswered(sessionId, tc.id)
+                (!isAskUserQuestion(tc) && tc.name !== 'question') ||
+                isQuestionAnswered(sessionId, tc.id)
             ) &&
             effectiveToolCalls?.some(
               tc => isExitPlanMode(tc) && !isQuestionAnswered(sessionId, tc.id)
@@ -1254,6 +1264,7 @@ export default function useStreamingEvents({
         const {
           sendStartedAt,
           streamingContents,
+          streamingThinkingContent,
           activeToolCalls,
           streamingContentBlocks,
           activeWorktreeId,
@@ -1359,7 +1370,10 @@ export default function useStreamingEvents({
         // when there are no tool calls — short filler like "Planning." isn't worth preserving
         const hasToolCalls = toolCalls && toolCalls.length > 0
         const hasSubstantialText = !!content && content.trim().length > 50
-        const hasContent = hasToolCalls || hasSubstantialText
+        const hasThinking = !!streamingThinkingContent[session_id]
+        const hasContentBlocks = !!contentBlocks && contentBlocks.length > 0
+        const hasContent =
+          hasToolCalls || hasSubstantialText || hasThinking || hasContentBlocks
         const hasQueuedMessages =
           (useChatStore.getState().messageQueues[session_id] ?? []).length > 0
         const shouldRestoreMessage =

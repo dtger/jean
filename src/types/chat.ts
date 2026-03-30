@@ -438,13 +438,14 @@ export interface AskUserQuestionInput {
 }
 
 /**
- * Type guard to check if a tool call is AskUserQuestion
+ * Type guard to check if a tool call is AskUserQuestion (Claude) or question (OpenCode).
+ * Both tools have the same input structure: { questions: Question[] }
  */
 export function isAskUserQuestion(
   toolCall: ToolCall
 ): toolCall is ToolCall & { input: AskUserQuestionInput } {
   return (
-    toolCall.name === 'AskUserQuestion' &&
+    (toolCall.name === 'AskUserQuestion' || toolCall.name === 'question') &&
     typeof toolCall.input === 'object' &&
     toolCall.input !== null &&
     'questions' in toolCall.input &&

@@ -246,9 +246,19 @@ export function useMessageHandlers({
       } = useChatStore.getState()
       markQuestionAnswered(sessionId, toolCallId, answers)
 
-      // Clear the preserved tool calls and review state since we're sending a response
-      clearToolCalls(sessionId)
-      clearStreamingContentBlocks(sessionId)
+      // Check if this is an OpenCode session early — needed to decide cleanup behavior
+      const session = queryClient.getQueryData<Session>(
+        chatQueryKeys.session(sessionId)
+      )
+      const isOpenCode = session?.backend === 'opencode'
+
+      // Clear the preserved tool calls and review state since we're sending a response.
+      // For OpenCode: DON'T clear streaming content — the HTTP POST is still in-flight
+      // and StreamingMessage is actively displaying thinking/content blocks.
+      if (!isOpenCode) {
+        clearToolCalls(sessionId)
+        clearStreamingContentBlocks(sessionId)
+      }
       setSessionReviewing(sessionId, false)
       setWaitingForInput(sessionId, false)
 
@@ -270,8 +280,39 @@ export function useMessageHandlers({
       // streaming starts. Don't physically scroll — let native CSS scroll
       // anchoring handle the question form collapse smoothly.
       markAtBottom()
+      if (session?.backend === 'opencode') {
+        // Format answers for OpenCode: each question gets an array of selected labels/text
+        const openCodeAnswers: string[][] = questions.map((q, qIndex) => {
+          const answer = answers.find(a => a.questionIndex === qIndex)
+          if (!answer) return []
+          if (answer.customText) return [answer.customText]
+          return answer.selectedOptions
+            .map(idx => q.options[idx]?.label)
+            .filter((l): l is string => !!l)
+        })
 
-      // Format answers as natural language
+        // Put session back into sending state (model continues after answer)
+        addSendingSession(sessionId)
+
+        // Reply via OpenCode Question API to unblock the in-flight HTTP POST
+        invoke('answer_opencode_question', {
+          worktreePath,
+          toolCallId: toolCallId,
+          answers: openCodeAnswers,
+        }).catch(err => {
+          console.error(
+            '[useMessageHandlers] Failed to answer OpenCode question:',
+            err
+          )
+          toast.error(`Failed to answer question: ${err}`)
+          useChatStore.getState().removeSendingSession(sessionId)
+        })
+
+        inputRef.current?.focus()
+        return
+      }
+
+      // Claude / Codex: format answers as natural language and send as new message
       const message = formatAnswersAsNaturalLanguage(questions, answers)
 
       // Add to sending state
@@ -316,6 +357,7 @@ export function useMessageHandlers({
       sendMessage,
       markAtBottom,
       inputRef,
+      queryClient,
     ]
   )
 
@@ -369,10 +411,30 @@ export function useMessageHandlers({
         )
       })
 
+      // For OpenCode: cancel the in-flight HTTP POST that's waiting for the question answer.
+      // Without this, the POST would hang for up to 30 minutes.
+      const session = queryClient.getQueryData<Session>(
+        chatQueryKeys.session(sessionId)
+      )
+      if (session?.backend === 'opencode') {
+        invoke('cancel_process', { sessionId, worktreeId }).catch(err => {
+          console.error(
+            '[useMessageHandlers] Failed to cancel OpenCode session after skip:',
+            err
+          )
+        })
+      }
+
       // Focus input so user can type their next message
       inputRef.current?.focus()
     },
-    [activeSessionIdRef, activeWorktreeIdRef, activeWorktreePathRef, inputRef]
+    [
+      activeSessionIdRef,
+      activeWorktreeIdRef,
+      activeWorktreePathRef,
+      inputRef,
+      queryClient,
+    ]
   )
 
   // Handle plan approval for ExitPlanMode

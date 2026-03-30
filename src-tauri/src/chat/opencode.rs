@@ -161,7 +161,16 @@ impl SharedSseSubscriber {
         input: serde_json::Value,
     ) {
         if self.accumulated_blocks.iter().any(|ab| ab.part_id == part_id) {
-            return; // Already registered
+            // Already registered — but update the input if the new one is richer
+            // (e.g., enriched question data replacing an empty/numeric placeholder).
+            if input.is_object() && input.as_object().map_or(false, |o| !o.is_empty()) {
+                if let Some(tc) = self.accumulated_tool_calls.iter_mut().find(|t| t.id == tool_call_id) {
+                    if !tc.input.is_object() || tc.input.as_object().map_or(true, |o| o.is_empty()) {
+                        tc.input = input;
+                    }
+                }
+            }
+            return;
         }
         self.accumulated_blocks.push(AccumulatedBlock {
             part_id: part_id.to_string(),
@@ -600,11 +609,94 @@ fn emit_chat_tool_result(
     );
 }
 
+/// Fetch the actual question data from OpenCode's Question API for a "question" tool call.
+///
+/// The SSE `state.input` for question tools often contains an internal value (e.g. `0`)
+/// instead of the actual question schema. This function queries `GET /question` to find the
+/// pending question matching the tool_call_id and returns its `questions` array formatted
+/// as an `AskUserQuestion`-compatible input: `{ "questions": [...] }`.
+///
+/// IMPORTANT: This may be called from the async SSE listener thread. We use
+/// `std::thread::spawn` to run the blocking HTTP call on a dedicated thread to avoid
+/// panicking when `reqwest::blocking::Client` is dropped inside an async context.
+fn fetch_opencode_question_input(
+    working_dir: &str,
+    tool_call_id: &str,
+) -> Option<serde_json::Value> {
+    let base_url = crate::opencode_server::get_current_url()?;
+    let working_dir = working_dir.to_string();
+    let tool_call_id = tool_call_id.to_string();
+
+    // Run the blocking HTTP call on a dedicated thread to avoid dropping
+    // reqwest::blocking::Client inside an async context (which panics).
+    // Retries a few times because the question may not be registered yet when the
+    // SSE event fires.
+    let handle = std::thread::spawn(move || -> Option<serde_json::Value> {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .ok()?;
+
+        let list_url = format!("{base_url}/question");
+        let query = [("directory", working_dir.as_str())];
+
+        for attempt in 0..5 {
+            if attempt > 0 {
+                std::thread::sleep(std::time::Duration::from_millis(300));
+            }
+
+            let resp = match client.get(&list_url).query(&query).send() {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+
+            if !resp.status().is_success() {
+                log::warn!(
+                    "OpenCode question list failed: status={}",
+                    resp.status()
+                );
+                continue;
+            }
+
+            let questions: serde_json::Value = match resp.json() {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            // Find the question whose tool.callID matches our tool_call_id
+            if let Some(question) = questions.as_array().and_then(|arr| {
+                arr.iter().find(|q| {
+                    q.get("tool")
+                        .and_then(|t| t.get("callID"))
+                        .and_then(|v| v.as_str())
+                        == Some(&tool_call_id)
+                })
+            }) {
+                if let Some(questions_array) = question.get("questions") {
+                    log::info!(
+                        "OpenCode: enriched question tool input for tool_call_id={tool_call_id} (attempt {attempt})"
+                    );
+                    return Some(serde_json::json!({ "questions": questions_array.clone() }));
+                }
+            }
+        }
+
+        log::warn!("OpenCode: failed to enrich question tool input for tool_call_id={tool_call_id} after 5 attempts");
+        None
+    });
+
+    handle.join().ok().flatten()
+}
+
 fn unseen_suffix(full_text: &str, emitted_len: usize) -> &str {
-    if emitted_len <= full_text.len() && full_text.is_char_boundary(emitted_len) {
+    if emitted_len >= full_text.len() {
+        // Already emitted past this point (stale snapshot or exact match)
+        ""
+    } else if full_text.is_char_boundary(emitted_len) {
         &full_text[emitted_len..]
     } else {
-        full_text
+        // emitted_len lands inside a multi-byte char; skip to avoid corruption
+        ""
     }
 }
 
@@ -1018,6 +1110,7 @@ fn process_message_part_event(
     app: &AppHandle,
     part: &serde_json::Value,
     subscriber: &mut SharedSseSubscriber,
+    working_dir: &str,
 ) -> Option<bool> {
     if subscriber.cancelled.load(Ordering::Relaxed) {
         return Some(false);
@@ -1045,8 +1138,19 @@ fn process_message_part_event(
                     kind: TrackedPartKind::Text { emitted_len },
                     ..
                 }) => {
+                    if *emitted_len > text.len() {
+                        log::debug!(
+                            "OpenCode SSE: stale text snapshot part_id='{part_id}' emitted_len={} text_len={} (skipped)",
+                            *emitted_len, text.len()
+                        );
+                    }
                     let suffix = unseen_suffix(text, *emitted_len).to_string();
-                    *emitted_len = text.len();
+                    // Never decrease emitted_len: stale snapshots must not
+                    // reset tracking backwards (causes subsequent deltas to
+                    // re-emit already-seen content).
+                    if text.len() > *emitted_len {
+                        *emitted_len = text.len();
+                    }
                     suffix
                 }
                 _ => {
@@ -1077,8 +1181,16 @@ fn process_message_part_event(
                     kind: TrackedPartKind::Reasoning { emitted_len },
                     ..
                 }) => {
+                    if *emitted_len > text.len() {
+                        log::debug!(
+                            "OpenCode SSE: stale reasoning snapshot part_id='{part_id}' emitted_len={} text_len={} (skipped)",
+                            *emitted_len, text.len()
+                        );
+                    }
                     let suffix = unseen_suffix(text, *emitted_len).to_string();
-                    *emitted_len = text.len();
+                    if text.len() > *emitted_len {
+                        *emitted_len = text.len();
+                    }
                     suffix
                 }
                 Some(TrackedPartState {
@@ -1091,7 +1203,7 @@ fn process_message_part_event(
                         TrackedPartState {
                             session_id: part_session_id.to_string(),
                             kind: TrackedPartKind::Reasoning {
-                                emitted_len: text.len(),
+                                emitted_len: text.len().max(prev_len),
                             },
                         },
                     );
@@ -1132,11 +1244,24 @@ fn process_message_part_event(
                 .unwrap_or("tool-call")
                 .to_string();
             let state = part.get("state").cloned().unwrap_or_default();
-            let input = state
+            let mut input = state
                 .get("input")
                 .or_else(|| part.get("tool_input"))
                 .cloned()
                 .unwrap_or(serde_json::json!({}));
+
+            // For "question" tools: the SSE state.input often contains an internal
+            // value (e.g. 0) rather than the actual question data. Fetch the real
+            // question data from the OpenCode Question API so the frontend can
+            // render the question UI.
+            if tool_name == "question" {
+                if let Some(enriched) =
+                    fetch_opencode_question_input(working_dir, &tool_call_id)
+                {
+                    input = enriched;
+                }
+            }
+
             subscriber.accumulate_tool(&part_id, &tool_call_id, &tool_name, input.clone());
             let existing_output = subscriber
                 .tracked_parts
@@ -1184,6 +1309,19 @@ fn process_message_part_event(
                             input.clone(),
                         ));
                         *emitted_started = true;
+                        emitted = true;
+                    } else if tool_name == "question"
+                        && input.is_object()
+                        && input.as_object().map_or(false, |o| o.contains_key("questions"))
+                    {
+                        // Re-emit tool_use with enriched input so the frontend
+                        // updates its streaming state (the first emit may have had
+                        // empty/placeholder input before the question was registered).
+                        tool_use_to_emit = Some((
+                            tool_call_id.clone(),
+                            tool_name.clone(),
+                            input.clone(),
+                        ));
                         emitted = true;
                     }
 
@@ -1394,7 +1532,7 @@ fn process_shared_sse_event(
         "message.part.updated" | "message.part" | "message.part.added" => {
             let part = properties.get("part").unwrap_or(&properties);
             let opencode_session_id = part.get("sessionID").and_then(|v| v.as_str()).unwrap_or("");
-            let subscriber = {
+            let (subscriber_handle, working_dir) = {
                 let lock_start = Instant::now();
                 let subscribers = lock_recover(subscribers, "OPENCODE_SSE_SUBSCRIBERS");
                 let lock_wait = lock_start.elapsed();
@@ -1406,15 +1544,13 @@ fn process_shared_sse_event(
                         subscribers.len()
                     );
                 }
-                subscribers
-                    .get(opencode_session_id)
-                    .map(|entry| entry.handle.clone())
+                match subscribers.get(opencode_session_id) {
+                    Some(entry) => (entry.handle.clone(), entry.working_dir.clone()),
+                    None => return Some(false),
+                }
             };
-            let Some(subscriber) = subscriber else {
-                return Some(false);
-            };
-            let mut subscriber = lock_recover(&subscriber, "OPENCODE_SSE_SUBSCRIBER");
-            process_message_part_event(app, part, &mut subscriber)
+            let mut subscriber = lock_recover(&subscriber_handle, "OPENCODE_SSE_SUBSCRIBER");
+            process_message_part_event(app, part, &mut subscriber, &working_dir)
         }
         "message.part.delta" => {
             let opencode_session_id = properties
@@ -1790,7 +1926,15 @@ pub fn execute_opencode_http(
                     .unwrap_or("tool-call")
                     .to_string();
                 let state = part.get("state").cloned().unwrap_or_default();
-                let input = state.get("input").cloned().unwrap_or(serde_json::json!({}));
+                let mut input = state.get("input").cloned().unwrap_or(serde_json::json!({}));
+
+                // Enrich "question" tool input (same as SSE handler)
+                if tool_name == "question" {
+                    let wd = working_dir.to_string_lossy();
+                    if let Some(enriched) = fetch_opencode_question_input(&wd, &tool_call_id) {
+                        input = enriched;
+                    }
+                }
 
                 tool_calls.push(ToolCall {
                     id: tool_call_id.clone(),
@@ -1879,7 +2023,7 @@ pub fn execute_opencode_http(
     // If SSE accumulated richer content (intermediate thinking/tool blocks),
     // prefer that over the POST response which only contains the final turn.
     let (sse_blocks, sse_tool_calls) = _shared_sse_subscription.take_accumulated();
-    let (final_content_blocks, final_tool_calls) = if sse_blocks.len() > content_blocks.len() {
+    let (merged_content_blocks, final_tool_calls) = if sse_blocks.len() > content_blocks.len() {
         log::info!(
             "OpenCode: using SSE accumulated blocks ({} blocks, {} tools) over POST response ({} blocks, {} tools)",
             sse_blocks.len(), sse_tool_calls.len(),
@@ -1889,6 +2033,10 @@ pub fn execute_opencode_http(
     } else {
         (content_blocks, tool_calls)
     };
+
+    // Merge consecutive thinking blocks into one (OpenCode sends separate
+    // reasoning parts that would otherwise render as many "Thinking" items).
+    let final_content_blocks = merge_consecutive_thinking(merged_content_blocks);
 
     // Check for cancellation before emitting chat:done — if the user cancelled
     // while we were parsing the response, suppress the done event to avoid stale UI updates.
@@ -1920,6 +2068,26 @@ pub fn execute_opencode_http(
         cancelled: false,
         usage,
     })
+}
+
+/// Merge consecutive `ContentBlock::Thinking` entries into a single block.
+/// OpenCode emits separate reasoning parts (each with its own `part_id`),
+/// which would otherwise render as many individual "Thinking" items in the UI.
+fn merge_consecutive_thinking(blocks: Vec<ContentBlock>) -> Vec<ContentBlock> {
+    let mut result: Vec<ContentBlock> = Vec::with_capacity(blocks.len());
+    for block in blocks {
+        if let ContentBlock::Thinking { thinking } = &block {
+            if let Some(ContentBlock::Thinking {
+                thinking: ref mut prev,
+            }) = result.last_mut()
+            {
+                prev.push_str(thinking);
+                continue;
+            }
+        }
+        result.push(block);
+    }
+    result
 }
 
 /// Execute a one-shot OpenCode call and return the text response.
@@ -2152,4 +2320,99 @@ fn one_shot_opencode_blocking(
         .trim();
 
     Ok(stripped.to_string())
+}
+
+/// Answer a pending OpenCode question by calling the Question.reply API.
+///
+/// Finds the pending question matching the given tool_call_id (via the question's
+/// `tool.callID` field), then sends the reply. This unblocks the in-flight HTTP POST
+/// that is waiting for the question to be answered.
+pub fn answer_opencode_question(
+    app: &tauri::AppHandle,
+    working_dir: &str,
+    tool_call_id: &str,
+    answers: Vec<Vec<String>>,
+) -> Result<(), String> {
+    let base_url = crate::opencode_server::acquire(app)?;
+
+    // RAII guard: decrements server usage count on exit
+    struct ServerReleaseGuard;
+    impl Drop for ServerReleaseGuard {
+        fn drop(&mut self) {
+            crate::opencode_server::release();
+        }
+    }
+    let _server_guard = ServerReleaseGuard;
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
+
+    let query = [("directory", working_dir.to_string())];
+
+    // List pending questions to find the one matching our tool_call_id
+    let list_url = format!("{base_url}/question");
+    let list_resp = client
+        .get(&list_url)
+        .query(&query)
+        .send()
+        .map_err(|e| format!("Failed to list OpenCode questions: {e}"))?;
+
+    if !list_resp.status().is_success() {
+        let status = list_resp.status();
+        let body = list_resp.text().unwrap_or_default();
+        return Err(format!(
+            "OpenCode question list failed: status={status}, body={body}"
+        ));
+    }
+
+    let questions: serde_json::Value = list_resp
+        .json()
+        .map_err(|e| format!("Failed to parse OpenCode question list: {e}"))?;
+
+    // Find the question whose tool.callID matches our tool_call_id
+    let request_id = questions
+        .as_array()
+        .and_then(|qs| {
+            qs.iter().find_map(|q| {
+                let call_id = q
+                    .get("tool")
+                    .and_then(|t| t.get("callID"))
+                    .and_then(|v| v.as_str());
+                if call_id == Some(tool_call_id) {
+                    q.get("id").and_then(|v| v.as_str()).map(|s| s.to_string())
+                } else {
+                    None
+                }
+            })
+        })
+        .ok_or_else(|| {
+            format!("No pending OpenCode question found for tool_call_id={tool_call_id}")
+        })?;
+
+    // Reply to the question
+    let reply_url = format!("{base_url}/question/{request_id}/reply");
+    let reply_body = serde_json::json!({ "answers": answers });
+
+    let reply_resp = client
+        .post(&reply_url)
+        .query(&query)
+        .json(&reply_body)
+        .send()
+        .map_err(|e| format!("Failed to reply to OpenCode question: {e}"))?;
+
+    if !reply_resp.status().is_success() {
+        let status = reply_resp.status();
+        let body = reply_resp.text().unwrap_or_default();
+        return Err(format!(
+            "OpenCode question reply failed: status={status}, body={body}"
+        ));
+    }
+
+    log::info!(
+        "OpenCode question replied: request_id={request_id}, tool_call_id={tool_call_id}"
+    );
+
+    Ok(())
 }

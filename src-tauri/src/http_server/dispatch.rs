@@ -1882,6 +1882,14 @@ pub async fn dispatch_command(
                 .await?;
             Ok(Value::Null)
         }
+        "answer_opencode_question" => {
+            let worktree_path: String = field(&args, "worktreePath", "worktree_path")?;
+            let tool_call_id: String = field(&args, "toolCallId", "tool_call_id")?;
+            let answers: Vec<Vec<String>> = from_field(&args, "answers")?;
+            crate::chat::answer_opencode_question(app.clone(), worktree_path, tool_call_id, answers)
+                .await?;
+            Ok(Value::Null)
+        }
 
         // =====================================================================
         // Chat (additional)

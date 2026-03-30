@@ -216,7 +216,8 @@ pub fn build_turn_start_params(
     // in ALL modes, and writable roots only in build/yolo modes.
     let mode = execution_mode.unwrap_or("plan");
     if !add_dirs.is_empty() {
-        let writable_roots: Vec<serde_json::Value> = if mode == "build" {
+        let is_writable = mode == "build" || mode == "yolo";
+        let writable_roots: Vec<serde_json::Value> = if is_writable {
             let mut roots = vec![serde_json::json!(working_dir.to_string_lossy())];
             for dir in add_dirs {
                 roots.push(serde_json::json!(dir));
@@ -226,7 +227,7 @@ pub fn build_turn_start_params(
             vec![]
         };
         params["sandboxPolicy"] = serde_json::json!({
-            "type": if mode == "build" { "workspaceWrite" } else { "readOnly" },
+            "type": if is_writable { "workspaceWrite" } else { "readOnly" },
             "writableRoots": writable_roots,
             "readOnlyAccess": { "type": "fullAccess" },
             "networkAccess": false,
@@ -566,6 +567,7 @@ fn process_turn_events(
                     &method,
                     &params,
                     is_build_mode,
+                    is_plan_mode,
                 );
             }
             ServerEvent::ServerDied => {
@@ -969,11 +971,19 @@ fn handle_approval_request(
     method: &str,
     params: &serde_json::Value,
     is_build_mode: bool,
+    is_plan_mode: bool,
 ) {
     match method {
         "item/fileChange/requestApproval" => {
-            // Auto-accept file changes in build mode
-            if is_build_mode {
+            if is_plan_mode {
+                // Deny file changes in plan mode — sandbox alone is not reliable
+                log::trace!("Denying file change in plan mode (rpc_id={rpc_id})");
+                let _ = super::codex_server::send_response(
+                    rpc_id,
+                    serde_json::json!({"decision": "deny"}),
+                );
+            } else {
+                // Auto-accept in build/yolo modes
                 log::trace!("Auto-accepting file change (rpc_id={rpc_id})");
                 if let Err(e) = super::codex_server::send_response(
                     rpc_id,
@@ -981,12 +991,6 @@ fn handle_approval_request(
                 ) {
                     log::error!("Failed to auto-accept file change: {e}");
                 }
-            } else {
-                // In non-build modes, also auto-accept (read-only sandbox prevents actual changes)
-                let _ = super::codex_server::send_response(
-                    rpc_id,
-                    serde_json::json!({"decision": "accept"}),
-                );
             }
         }
         "item/commandExecution/requestApproval" => {

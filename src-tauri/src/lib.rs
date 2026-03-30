@@ -2788,6 +2788,7 @@ pub fn run() {
             chat::dequeue_message,
             chat::remove_queued_message,
             chat::clear_message_queue,
+            chat::answer_opencode_question,
             // Chat commands - Image handling
             chat::read_clipboard_image,
             chat::save_pasted_image,
