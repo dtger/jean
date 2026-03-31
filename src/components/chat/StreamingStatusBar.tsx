@@ -1,5 +1,9 @@
 import { memo } from 'react'
 import type { ExecutionMode, RunStatus } from '@/types/chat'
+import {
+  StatusIndicator,
+  type IndicatorVariant,
+} from '@/components/ui/status-indicator'
 import { useElapsedTime } from './hooks/useElapsedTime'
 
 interface StreamingStatusBarProps {
@@ -16,6 +20,12 @@ function getModeLabel(mode: string | undefined): string {
   return 'Vibing'
 }
 
+function getSpinnerVariant(
+  mode: ExecutionMode | string | undefined
+): IndicatorVariant | undefined {
+  return mode === 'yolo' ? 'destructive' : undefined
+}
+
 /**
  * Inline streaming timer shown after the last response message.
  * Returns null when not visible.
@@ -23,6 +33,7 @@ function getModeLabel(mode: string | undefined): string {
 export const StreamingStatusBar = memo(function StreamingStatusBar({
   isSending,
   sendStartedAt,
+  streamingExecutionMode,
   restoredRunStatus,
   restoredExecutionMode,
 }: StreamingStatusBarProps) {
@@ -30,18 +41,24 @@ export const StreamingStatusBar = memo(function StreamingStatusBar({
 
   const showRestored = !isSending && restoredRunStatus === 'running'
   const visible = isSending || showRestored
+  const activeMode = isSending ? streamingExecutionMode : restoredExecutionMode
 
   if (!visible) return null
 
   return (
-    <span className="mt-1 block min-h-4 text-xs leading-4 text-muted-foreground/40 tabular-nums font-mono select-none">
+    <div className="mt-1 inline-flex min-h-4 items-center gap-1.5 text-xs text-muted-foreground/40 tabular-nums font-mono select-none">
+      <StatusIndicator
+        status="running"
+        variant={getSpinnerVariant(activeMode)}
+        className="h-2 w-2"
+      />
       {showRestored ? (
-        <span className="animate-dots">
+        <span className="leading-none animate-dots">
           {getModeLabel(restoredExecutionMode)}
         </span>
       ) : (
-        (elapsed ?? '0s')
+        <span className="leading-none">{elapsed ?? '0s'}</span>
       )}
-    </span>
+    </div>
   )
 })
