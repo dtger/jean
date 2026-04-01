@@ -14,6 +14,7 @@ import {
   Search,
   X,
   MoreHorizontal,
+  ArrowUpDown,
   Settings,
   Plus,
   FileJson,
@@ -34,6 +35,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
@@ -144,6 +148,8 @@ interface FlatCard {
   isPending?: boolean
 }
 
+type WorktreeSortMode = 'created' | 'last_used'
+
 type ActiveStatus =
   | 'waiting'
   | 'planning'
@@ -185,6 +191,33 @@ function formatRelativeTime(timestamp?: number): string | null {
   }
   const days = Math.floor(diffMs / dayMs)
   return `${days}d ago`
+}
+
+function getWorktreeSortValue(
+  worktree: Worktree,
+  sessions: Session[],
+  sortMode: WorktreeSortMode
+): number {
+  if (sortMode === 'created') {
+    return worktree.created_at
+  }
+
+  const latestSessionOpenedAt = sessions.reduce(
+    (latest, session) => Math.max(latest, session.last_opened_at ?? 0),
+    0
+  )
+  const latestSessionActivityAt = sessions.reduce(
+    (latest, session) =>
+      Math.max(latest, session.updated_at ?? session.created_at ?? 0),
+    0
+  )
+
+  return Math.max(
+    worktree.last_opened_at ?? 0,
+    latestSessionOpenedAt,
+    latestSessionActivityAt,
+    worktree.created_at
+  )
 }
 
 function getSessionMetrics(cards: SessionCardData[]) {
@@ -542,6 +575,8 @@ export function ProjectCanvasView({ projectId }: ProjectCanvasViewProps) {
   const openInEditor = useOpenWorktreeInEditor()
 
   const [searchQuery, setSearchQuery] = useState('')
+  const [worktreeSortMode, setWorktreeSortMode] =
+    useState<WorktreeSortMode>('created')
   const isMobile = useIsMobile()
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false)
 
@@ -621,27 +656,101 @@ export function ProjectCanvasView({ projectId }: ProjectCanvasViewProps) {
 
   // Use shared store state hook
   const storeState = useCanvasStoreState()
+  const queryClient = useQueryClient()
+
+  const markWorktreeLastUsed = useCallback(
+    (worktreeId: string, reason: string) => {
+      if (!isTauri()) return
+
+      const now = Math.floor(Date.now() / 1000)
+      console.debug('[ProjectCanvasView] markWorktreeLastUsed:start', {
+        projectId,
+        worktreeId,
+        reason,
+        now,
+      })
+
+      queryClient.setQueryData<Worktree[]>(
+        projectsQueryKeys.worktrees(projectId),
+        current =>
+          current?.map(worktree =>
+            worktree.id === worktreeId
+              ? { ...worktree, last_opened_at: now }
+              : worktree
+          )
+      )
+
+      void invoke('set_worktree_last_opened', { worktreeId })
+        .then(() => {
+          console.debug('[ProjectCanvasView] markWorktreeLastUsed:success', {
+            projectId,
+            worktreeId,
+            reason,
+            now,
+          })
+          queryClient.invalidateQueries({
+            queryKey: projectsQueryKeys.worktrees(projectId),
+          })
+        })
+        .catch(error => {
+          console.debug('[ProjectCanvasView] markWorktreeLastUsed:error', {
+            projectId,
+            worktreeId,
+            reason,
+            error,
+          })
+          queryClient.invalidateQueries({
+            queryKey: projectsQueryKeys.worktrees(projectId),
+          })
+        })
+    },
+    [projectId, queryClient]
+  )
+
+  const openWorktreeModal = useCallback(
+    (worktreeId: string, worktreePath: string, reason: string) => {
+      console.debug('[ProjectCanvasView] openWorktreeModal', {
+        projectId,
+        worktreeId,
+        worktreePath,
+        reason,
+      })
+      markWorktreeLastUsed(worktreeId, reason)
+      setSelectedWorktreeModal({ worktreeId, worktreePath })
+    },
+    [markWorktreeLastUsed, projectId]
+  )
 
   // Build worktree sections with computed card data
   const worktreeSections: WorktreeSection[] = useMemo(() => {
     const result: WorktreeSection[] = []
 
-    // Add pending worktrees first (newest first by created_at)
-    const sortedPending = [...pendingWorktrees].sort(
-      (a, b) => b.created_at - a.created_at
-    )
+    const getSortValueForWorktree = (worktree: Worktree) => {
+      const sessions = sessionsByWorktreeId.get(worktree.id)?.sessions ?? []
+      return getWorktreeSortValue(worktree, sessions, worktreeSortMode)
+    }
+
+    const compareBySortMode = (a: Worktree, b: Worktree) => {
+      const sortDiff =
+        getSortValueForWorktree(b) - getSortValueForWorktree(a)
+      if (sortDiff !== 0) return sortDiff
+      return b.created_at - a.created_at
+    }
+
+    // Add pending worktrees first
+    const sortedPending = [...pendingWorktrees].sort(compareBySortMode)
     for (const worktree of sortedPending) {
       // Include pending worktrees even without sessions - show setup card
       result.push({ worktree, cards: [], isPending: true })
     }
 
-    // Sort ready worktrees: base sessions first, then by created_at (newest first)
+    // Sort ready worktrees: base sessions first, then selected sort mode
     const sortedWorktrees = [...readyWorktrees].sort((a, b) => {
       const aIsBase = isBaseSession(a)
       const bIsBase = isBaseSession(b)
       if (aIsBase && !bIsBase) return -1
       if (!aIsBase && bIsBase) return 1
-      return b.created_at - a.created_at
+      return compareBySortMode(a, b)
     })
 
     for (const worktree of sortedWorktrees) {
@@ -694,7 +803,53 @@ export function ProjectCanvasView({ projectId }: ProjectCanvasViewProps) {
     sessionsByWorktreeId,
     storeState,
     searchQuery,
+    worktreeSortMode,
   ])
+
+  useEffect(() => {
+    if (worktreeSortMode !== 'last_used') return
+
+    console.debug(
+      '[ProjectCanvasView] last-used sort snapshot',
+      visibleWorktrees
+        .map(worktree => ({
+          id: worktree.id,
+          name: worktree.name,
+          created_at: worktree.created_at,
+          worktree_last_opened_at: worktree.last_opened_at ?? null,
+          session_last_opened_at:
+            sessionsByWorktreeId
+              .get(worktree.id)
+              ?.sessions.reduce(
+                (latest, session) =>
+                  Math.max(latest, session.last_opened_at ?? 0),
+                0
+              ) ?? null,
+          latest_session_activity_at:
+            sessionsByWorktreeId
+              .get(worktree.id)
+              ?.sessions.reduce(
+                (latest, session) =>
+                  Math.max(
+                    latest,
+                    session.updated_at ?? session.created_at ?? 0
+                  ),
+                0
+              ) ?? null,
+          effective_last_used_at: getWorktreeSortValue(
+            worktree,
+            sessionsByWorktreeId.get(worktree.id)?.sessions ?? [],
+            'last_used'
+          ),
+        }))
+        .sort((a, b) => {
+          const aLastUsed = a.effective_last_used_at ?? 0
+          const bLastUsed = b.effective_last_used_at ?? 0
+          if (bLastUsed !== aLastUsed) return bLastUsed - aLastUsed
+          return b.created_at - a.created_at
+        })
+    )
+  }, [worktreeSortMode, visibleWorktrees, sessionsByWorktreeId])
 
   const projectSummary = useMemo(() => {
     let reviewCount = 0
@@ -885,10 +1040,11 @@ export function ProjectCanvasView({ projectId }: ProjectCanvasViewProps) {
     const handleOpenModal = (
       e: CustomEvent<{ worktreeId: string; worktreePath: string }>
     ) => {
-      setSelectedWorktreeModal({
-        worktreeId: e.detail.worktreeId,
-        worktreePath: e.detail.worktreePath,
-      })
+      openWorktreeModal(
+        e.detail.worktreeId,
+        e.detail.worktreePath,
+        'open-worktree-modal-event'
+      )
     }
     window.addEventListener(
       'open-worktree-modal',
@@ -1018,16 +1174,13 @@ export function ProjectCanvasView({ projectId }: ProjectCanvasViewProps) {
 
         // Set active session so the modal opens on the right tab
         useChatStore.getState().setActiveSession(worktreeId, targetSession.id)
-        setSelectedWorktreeModal({
-          worktreeId,
-          worktreePath: worktree.path,
-        })
+        openWorktreeModal(worktreeId, worktree.path, 'auto-open-session')
         break // Only one per render cycle
       }
     }
     // sessionsFingerprint tracks when session data changes (stable string, not Map reference)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionsFingerprint, readyWorktrees, flatCards])
+  }, [sessionsFingerprint, readyWorktrees, flatCards, openWorktreeModal])
 
   // Auto-select session when dashboard opens (visual selection only, no modal unless restore_last_session is on)
   // Prefers last opened per project, then persisted active session per worktree, falls back to first card
@@ -1144,10 +1297,11 @@ export function ProjectCanvasView({ projectId }: ProjectCanvasViewProps) {
         useChatStore
           .getState()
           .setActiveSession(targetCard.worktreeId, sessionIdToOpen)
-        setSelectedWorktreeModal({
-          worktreeId: targetCard.worktreeId,
-          worktreePath: targetCard.worktreePath,
-        })
+        openWorktreeModal(
+          targetCard.worktreeId,
+          targetCard.worktreePath,
+          'restore-last-session'
+        )
       }
     }
   }, [
@@ -1156,6 +1310,7 @@ export function ProjectCanvasView({ projectId }: ProjectCanvasViewProps) {
     selectedWorktreeModal,
     projectId,
     preferences?.restore_last_session,
+    openWorktreeModal,
   ])
 
   // Mutations
@@ -1164,7 +1319,7 @@ export function ProjectCanvasView({ projectId }: ProjectCanvasViewProps) {
   // Handle clicking on a worktree row - open modal
   const handleWorktreeClick = useCallback(
     (worktreeId: string, worktreePath: string) => {
-      setSelectedWorktreeModal({ worktreeId, worktreePath })
+      openWorktreeModal(worktreeId, worktreePath, 'canvas-row-click')
 
       // Persist last-opened project context immediately on open so project switch
       // restore does not depend on a subsequent tab change event.
@@ -1182,7 +1337,7 @@ export function ProjectCanvasView({ projectId }: ProjectCanvasViewProps) {
         setLastOpenedForProject(projectId, worktreeId, targetSessionId)
       }
     },
-    [projectId]
+    [openWorktreeModal, projectId]
   )
 
   // Handle selection from keyboard nav
@@ -1313,7 +1468,6 @@ export function ProjectCanvasView({ projectId }: ProjectCanvasViewProps) {
   })
 
   // Worktree label modal state
-  const queryClient = useQueryClient()
   const [worktreeLabelModalOpen, setWorktreeLabelModalOpen] = useState(false)
   const [worktreeLabelTarget, setWorktreeLabelTarget] = useState<{
     worktreeId: string
@@ -1600,10 +1754,11 @@ export function ProjectCanvasView({ projectId }: ProjectCanvasViewProps) {
             useChatStore
               .getState()
               .setActiveSession(item.worktreeId, session.id)
-            setSelectedWorktreeModal({
-              worktreeId: item.worktreeId,
-              worktreePath: item.worktreePath,
-            })
+            openWorktreeModal(
+              item.worktreeId,
+              item.worktreePath,
+              'create-new-session'
+            )
           },
         }
       )
@@ -1616,7 +1771,13 @@ export function ProjectCanvasView({ projectId }: ProjectCanvasViewProps) {
       window.removeEventListener('create-new-session', handleCreateNewSession, {
         capture: true,
       })
-  }, [selectedWorktreeModal, selectedIndex, flatCards, createSession])
+  }, [
+    selectedWorktreeModal,
+    selectedIndex,
+    flatCards,
+    createSession,
+    openWorktreeModal,
+  ])
 
   // Listen for open-session-modal event (fired by ChatWindow when creating new session inside modal,
   // or by UnreadBell/UnreadSessionsModal to open a session on the project canvas)
@@ -1636,7 +1797,7 @@ export function ProjectCanvasView({ projectId }: ProjectCanvasViewProps) {
         if (sessionId) {
           useChatStore.getState().setActiveSession(worktreeId, sessionId)
         }
-        setSelectedWorktreeModal({ worktreeId, worktreePath })
+        openWorktreeModal(worktreeId, worktreePath, 'open-session-modal-event')
         return
       }
 
@@ -1660,7 +1821,7 @@ export function ProjectCanvasView({ projectId }: ProjectCanvasViewProps) {
         'open-session-modal',
         handleOpenSessionModal as EventListener
       )
-  }, [selectedWorktreeModal])
+  }, [selectedWorktreeModal, openWorktreeModal])
 
   // Periodically refresh git status for all worktrees while on the dashboard
   useEffect(() => {
@@ -1838,6 +1999,35 @@ export function ProjectCanvasView({ projectId }: ProjectCanvasViewProps) {
                       </span>
                     )}
                   </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground"
+                    aria-label="Sort worktrees"
+                  >
+                    <ArrowUpDown className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-48">
+                  <DropdownMenuLabel>Sort worktrees</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuRadioGroup
+                    value={worktreeSortMode}
+                    onValueChange={value =>
+                      setWorktreeSortMode(value as WorktreeSortMode)
+                    }
+                  >
+                    <DropdownMenuRadioItem value="created">
+                      Creation date
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="last_used">
+                      Last used date
+                    </DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
               {/* Mobile: magnifier icon inline with badges */}
