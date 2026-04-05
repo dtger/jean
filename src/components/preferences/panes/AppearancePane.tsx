@@ -146,7 +146,7 @@ export const AppearancePane: React.FC = () => {
               onValueChange={handleThemeChange}
               disabled={patchPreferences.isPending}
             >
-              <SelectTrigger className="min-w-96">
+              <SelectTrigger className="w-full sm:min-w-96">
                 <SelectValue placeholder="Select theme" />
               </SelectTrigger>
               <SelectContent>

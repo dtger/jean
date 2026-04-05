@@ -284,7 +284,6 @@ class WsTransport {
   private _dataReady = false
   private _tokenValidated = false
   private _lastConnectTime = 0
-  private _reconnectPrefetch: Promise<InitialData | null> | null = null
   private _subscribers = new Set<() => void>()
 
   get connected(): boolean {
@@ -329,17 +328,6 @@ class WsTransport {
   subscribe(callback: () => void): () => void {
     this._subscribers.add(callback)
     return () => this._subscribers.delete(callback)
-  }
-
-  /**
-   * Consume the reconnect prefetch (if available).
-   * Returns the in-flight /api/init promise that was started during the
-   * backoff wait, or null if no prefetch is pending.
-   */
-  consumeReconnectData(): Promise<InitialData | null> | null {
-    const prefetch = this._reconnectPrefetch
-    this._reconnectPrefetch = null
-    return prefetch
   }
 
   /** Get current connection snapshot for useSyncExternalStore. */
@@ -500,16 +488,6 @@ class WsTransport {
       // Clear queued-but-unsent messages to prevent reconnect from
       // flushing stale commands that spawn duplicate CLI processes.
       this.queue = []
-
-      // Start prefetching /api/init during the backoff wait so data is
-      // ready by the time the WebSocket reconnects. Uses a short delay
-      // to debounce rapid disconnects.
-      this._reconnectPrefetch = null
-      setTimeout(() => {
-        if (!this._connected) {
-          this._reconnectPrefetch = refetchInitialData()
-        }
-      }, 50)
 
       this.scheduleReconnect()
     }
@@ -767,14 +745,6 @@ export function useWsDataReady(): boolean {
 /** Mark WebSocket data as ready (called by App.tsx after seedCache). */
 export function setWsDataReady(value: boolean): void {
   wsTransport.setDataReady(value)
-}
-
-/**
- * Consume the reconnect prefetch started during the backoff wait.
- * Returns the in-flight /api/init promise, or null if none pending.
- */
-export function consumeReconnectData(): Promise<InitialData | null> | null {
-  return wsTransport.consumeReconnectData()
 }
 
 /**

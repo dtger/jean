@@ -965,6 +965,38 @@ fn process_turn_events(
         false
     };
 
+    // Fallback: if we're in plan mode with a CodexPlan tool that has steps but
+    // no plan text, inject full_content so the investigation summary renders
+    // inside PlanDisplay instead of as unformatted text.
+    // Also remove duplicate text blocks whose content matches the plan text.
+    if !cancelled && !error_emitted && is_plan_mode && !full_content.is_empty() {
+        if let Some(tc) = tool_calls
+            .iter()
+            .find(|tc| tc.name == CODEX_PLAN_TOOL_NAME)
+        {
+            let has_plan = tc
+                .input
+                .get("plan")
+                .and_then(|v| v.as_str())
+                .is_some_and(|s| !s.is_empty());
+            if !has_plan {
+                let tool_id = tc.id.clone();
+                let input =
+                    merge_codex_plan_input(Some(&tc.input), Some(full_content.clone()), None, None, None);
+                upsert_codex_plan_tool_call(
+                    &mut tool_calls,
+                    &mut content_blocks,
+                    &tool_id,
+                    input,
+                );
+                // Remove text blocks that duplicate the plan content
+                content_blocks.retain(|block| {
+                    !matches!(block, ContentBlock::Text { text } if text.trim() == full_content.trim())
+                });
+            }
+        }
+    }
+
     // Emit chat:done unless error was emitted
     if !cancelled && !error_emitted {
         let has_plan_tool = has_codex_plan_tool(&tool_calls);
@@ -1276,6 +1308,47 @@ fn process_server_notification(
             }
             if event_item.get("type").and_then(|v| v.as_str()) == Some("agent_message") {
                 *received_completed_agent_message = true;
+
+                // In plan mode, merge final_answer text into the CodexPlan tool
+                // so it renders inside PlanDisplay instead of as plain text.
+                // Skip process_codex_event to avoid creating a duplicate ContentBlock::Text.
+                let is_final_answer = event_item
+                    .get("phase")
+                    .and_then(|v| v.as_str())
+                    == Some("final_answer");
+                if is_plan_mode && is_final_answer {
+                    let answer_text = extract_agent_message_text(&event_item);
+                    if let Some(text) = answer_text.filter(|t| !t.is_empty()) {
+                        if let Some(existing_plan_tc) = tool_calls
+                            .iter()
+                            .find(|tc| tc.name == CODEX_PLAN_TOOL_NAME)
+                        {
+                            let tool_id = existing_plan_tc.id.clone();
+                            let existing_input = Some(&existing_plan_tc.input);
+                            let input = merge_codex_plan_input(
+                                existing_input,
+                                Some(text.clone()),
+                                None,
+                                None,
+                                None,
+                            );
+                            upsert_codex_plan_tool_call(
+                                tool_calls,
+                                content_blocks,
+                                &tool_id,
+                                input.clone(),
+                            );
+                            emit_codex_plan_tool_call(
+                                app, session_id, worktree_id, &tool_id, &input,
+                            );
+                            // Still accumulate into full_content for the final response
+                            if !full_content.contains(&text) {
+                                full_content.push_str(&text);
+                            }
+                            return;
+                        }
+                    }
+                }
             }
             let event_type = "item.completed";
             let event_msg = serde_json::json!({ "type": event_type, "item": event_item });
@@ -2634,7 +2707,38 @@ pub fn parse_codex_run_to_message(
                                 continue;
                             }
                             content.push_str(&text);
-                            content_blocks.push(ContentBlock::Text { text });
+
+                            // In plan mode, merge final_answer into the CodexPlan tool
+                            // and skip the ContentBlock::Text to avoid rendering twice.
+                            let is_final_answer = item
+                                .get("phase")
+                                .and_then(|v| v.as_str())
+                                == Some("final_answer");
+                            let mut merged_into_plan = false;
+                            if is_plan_mode && is_final_answer && !text.is_empty() {
+                                if let Some(existing_tc) = tool_calls
+                                    .iter()
+                                    .find(|tc| tc.name == CODEX_PLAN_TOOL_NAME)
+                                {
+                                    let tool_id = existing_tc.id.clone();
+                                    let input = merge_codex_plan_input(
+                                        Some(&existing_tc.input),
+                                        Some(text.clone()),
+                                        None,
+                                        None,
+                                        None,
+                                    );
+                                    if let Some(tc) =
+                                        tool_calls.iter_mut().find(|t| t.id == tool_id)
+                                    {
+                                        tc.input = input;
+                                        merged_into_plan = true;
+                                    }
+                                }
+                            }
+                            if !merged_into_plan {
+                                content_blocks.push(ContentBlock::Text { text });
+                            }
                         }
                     }
                     "command_execution" => {
@@ -2762,6 +2866,37 @@ pub fn parse_codex_run_to_message(
 
     if is_plan_mode {
         ensure_plain_text_codex_plan_tool(&mut tool_calls, &mut content_blocks, &content);
+
+        // Fallback: if CodexPlan exists but has no plan text, inject full content
+        if !content.is_empty() {
+            if let Some(tc) = tool_calls
+                .iter()
+                .find(|tc| tc.name == CODEX_PLAN_TOOL_NAME)
+            {
+                let has_plan = tc
+                    .input
+                    .get("plan")
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|s| !s.is_empty());
+                if !has_plan {
+                    let tool_id = tc.id.clone();
+                    let input = merge_codex_plan_input(
+                        Some(&tc.input),
+                        Some(content.clone()),
+                        None,
+                        None,
+                        None,
+                    );
+                    if let Some(tc) = tool_calls.iter_mut().find(|t| t.id == tool_id) {
+                        tc.input = input;
+                    }
+                    // Remove text blocks that duplicate the plan content
+                    content_blocks.retain(|block| {
+                        !matches!(block, ContentBlock::Text { text } if text.trim() == content.trim())
+                    });
+                }
+            }
+        }
     }
 
     Ok(ChatMessage {

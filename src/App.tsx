@@ -8,7 +8,6 @@ import {
   useWsAuthError,
   preloadInitialData,
   refetchInitialData,
-  consumeReconnectData,
   setAppDataDir,
   hasPreloadedData,
   type InitialData,
@@ -406,11 +405,8 @@ function App() {
       // so the server loads the correct sessions even when ui_state.json
       // on disk is stale (debounced save hasn't flushed yet).
       const activeSessionIds = useChatStore.getState().activeSessionIds
-      const prefetch = consumeReconnectData()
-      const dataPromise = prefetch ?? refetchInitialData(activeSessionIds)
-      logger.info('WebSocket reconnected, re-fetching initial data via HTTP', {
-        prefetched: !!prefetch,
-      })
+      const dataPromise = refetchInitialData(activeSessionIds)
+      logger.info('WebSocket reconnected, re-fetching initial data via HTTP')
       dataPromise
         .then(data => {
           if (data) {

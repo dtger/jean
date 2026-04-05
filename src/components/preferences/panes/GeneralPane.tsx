@@ -844,7 +844,7 @@ export const GeneralPane: React.FC = () => {
                 ) : (
                   <Button
                     variant="outline"
-                    className="w-40 justify-between"
+                    className="w-full sm:w-40 justify-between"
                     onClick={() => openCliUpdateModal('claude')}
                   >
                     {cliStatus.version ?? 'Installed'}
@@ -853,7 +853,7 @@ export const GeneralPane: React.FC = () => {
                 )
               ) : (
                 <Button
-                  className="w-40"
+                  className="w-full sm:w-40"
                   onClick={() => openCliUpdateModal('claude')}
                 >
                   Install
@@ -987,7 +987,7 @@ export const GeneralPane: React.FC = () => {
                 ) : (
                   <Button
                     variant="outline"
-                    className="w-40 justify-between"
+                    className="w-full sm:w-40 justify-between"
                     onClick={() => openCliUpdateModal('gh')}
                   >
                     {ghStatus.version ?? 'Installed'}
@@ -996,7 +996,7 @@ export const GeneralPane: React.FC = () => {
                 )
               ) : (
                 <Button
-                  className="w-40"
+                  className="w-full sm:w-40"
                   onClick={() => openCliUpdateModal('gh')}
                 >
                   Install
@@ -1143,7 +1143,7 @@ export const GeneralPane: React.FC = () => {
                 ) : (
                   <Button
                     variant="outline"
-                    className="w-40 justify-between"
+                    className="w-full sm:w-40 justify-between"
                     onClick={() => openCliUpdateModal('codex')}
                   >
                     {codexStatus.version ?? 'Installed'}
@@ -1152,7 +1152,7 @@ export const GeneralPane: React.FC = () => {
                 )
               ) : (
                 <Button
-                  className="w-40"
+                  className="w-full sm:w-40"
                   onClick={() => openCliUpdateModal('codex')}
                 >
                   Install
@@ -1304,7 +1304,7 @@ export const GeneralPane: React.FC = () => {
                 ) : (
                   <Button
                     variant="outline"
-                    className="w-40 justify-between"
+                    className="w-full sm:w-40 justify-between"
                     onClick={() => openCliUpdateModal('opencode')}
                   >
                     {opencodeStatus.version ?? 'Installed'}
@@ -1313,7 +1313,7 @@ export const GeneralPane: React.FC = () => {
                 )
               ) : (
                 <Button
-                  className="w-40"
+                  className="w-full sm:w-40"
                   onClick={() => openCliUpdateModal('opencode')}
                 >
                   Install
@@ -1379,7 +1379,7 @@ export const GeneralPane: React.FC = () => {
               value={effectiveBackend}
               onValueChange={handleBackendChange}
             >
-              <SelectTrigger className="min-w-96">
+              <SelectTrigger className="w-full sm:min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1410,7 +1410,7 @@ export const GeneralPane: React.FC = () => {
                 patchPreferences.mutate({ default_execution_mode: value })
               }}
             >
-              <SelectTrigger className="min-w-96">
+              <SelectTrigger className="w-full sm:min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1748,7 +1748,7 @@ export const GeneralPane: React.FC = () => {
               value={preferences?.selected_model ?? 'opus'}
               onValueChange={handleModelChange}
             >
-              <SelectTrigger className="min-w-96">
+              <SelectTrigger className="w-full sm:min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1769,7 +1769,7 @@ export const GeneralPane: React.FC = () => {
               value={preferences?.thinking_level ?? 'off'}
               onValueChange={handleThinkingLevelChange}
             >
-              <SelectTrigger className="min-w-96">
+              <SelectTrigger className="w-full sm:min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1790,7 +1790,7 @@ export const GeneralPane: React.FC = () => {
               value={preferences?.default_effort_level ?? 'high'}
               onValueChange={handleEffortLevelChange}
             >
-              <SelectTrigger className="min-w-96">
+              <SelectTrigger className="w-full sm:min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1837,7 +1837,7 @@ export const GeneralPane: React.FC = () => {
               value={preferences?.selected_codex_model ?? 'gpt-5.4'}
               onValueChange={handleCodexModelChange}
             >
-              <SelectTrigger className="min-w-96">
+              <SelectTrigger className="w-full sm:min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1858,7 +1858,7 @@ export const GeneralPane: React.FC = () => {
               value={preferences?.default_codex_reasoning_effort ?? 'high'}
               onValueChange={handleCodexReasoningChange}
             >
-              <SelectTrigger className="min-w-96">
+              <SelectTrigger className="w-full sm:min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -2001,7 +2001,7 @@ export const GeneralPane: React.FC = () => {
                 value={preferences?.editor ?? 'zed'}
                 onValueChange={handleEditorChange}
               >
-                <SelectTrigger className="min-w-96">
+                <SelectTrigger className="w-full sm:min-w-96">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -2024,7 +2024,7 @@ export const GeneralPane: React.FC = () => {
                 value={preferences?.terminal ?? 'terminal'}
                 onValueChange={handleTerminalChange}
               >
-                <SelectTrigger className="min-w-96">
+                <SelectTrigger className="w-full sm:min-w-96">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -2047,7 +2047,7 @@ export const GeneralPane: React.FC = () => {
                 value={preferences?.open_in ?? 'editor'}
                 onValueChange={handleOpenInChange}
               >
-                <SelectTrigger className="min-w-96">
+                <SelectTrigger className="w-full sm:min-w-96">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -2069,7 +2069,7 @@ export const GeneralPane: React.FC = () => {
               value={String(preferences?.git_poll_interval ?? 60)}
               onValueChange={handleGitPollIntervalChange}
             >
-              <SelectTrigger className="min-w-96">
+              <SelectTrigger className="w-full sm:min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -2090,7 +2090,7 @@ export const GeneralPane: React.FC = () => {
               value={String(preferences?.remote_poll_interval ?? 60)}
               onValueChange={handleRemotePollIntervalChange}
             >
-              <SelectTrigger className="min-w-96">
+              <SelectTrigger className="w-full sm:min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -2115,7 +2115,7 @@ export const GeneralPane: React.FC = () => {
               value={preferences?.waiting_sound ?? 'none'}
               onValueChange={handleWaitingSoundChange}
             >
-              <SelectTrigger className="min-w-96">
+              <SelectTrigger className="w-full sm:min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -2136,7 +2136,7 @@ export const GeneralPane: React.FC = () => {
               value={preferences?.review_sound ?? 'none'}
               onValueChange={handleReviewSoundChange}
             >
-              <SelectTrigger className="min-w-96">
+              <SelectTrigger className="w-full sm:min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -2274,7 +2274,7 @@ export const GeneralPane: React.FC = () => {
                 }
               }}
             >
-              <SelectTrigger className="min-w-96">
+              <SelectTrigger className="w-full sm:min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -2311,7 +2311,7 @@ export const GeneralPane: React.FC = () => {
               value={String(preferences?.archive_retention_days ?? 30)}
               onValueChange={handleArchiveRetentionChange}
             >
-              <SelectTrigger className="min-w-96">
+              <SelectTrigger className="w-full sm:min-w-96">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -2414,7 +2414,7 @@ const AiLanguageField: FC<{
     >
       <div className="flex items-center gap-2">
         <Input
-          className="w-40"
+          className="w-full sm:w-40"
           placeholder="Default"
           value={localValue}
           onChange={e => setLocalValue(e.target.value)}

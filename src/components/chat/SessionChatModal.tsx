@@ -752,7 +752,7 @@ export function SessionChatModal({
         <div className="flex shrink-0 flex-col gap-2 border-b px-4 py-2 sm:text-left">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
-              <h2 className="text-sm font-medium shrink-0">
+              <h2 className="text-sm font-medium min-w-0 truncate">
                 {project && !isMobile && (
                   <span className="text-muted-foreground font-normal">
                     <button
