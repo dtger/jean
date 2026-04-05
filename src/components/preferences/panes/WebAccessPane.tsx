@@ -53,6 +53,21 @@ function isWildcardBindHost(host: string | null | undefined): boolean {
   return host != null && WILDCARD_BIND_HOSTS.has(host.trim().toLowerCase())
 }
 
+function getUrlHostname(url: string | null | undefined): string | null {
+  if (!url) return null
+
+  try {
+    return new URL(url).hostname.replace(/^\[|\]$/g, '').toLowerCase()
+  } catch {
+    return null
+  }
+}
+
+function hasUsableBoundUrl(url: string | null | undefined): boolean {
+  const hostname = getUrlHostname(url)
+  return hostname != null && !isWildcardBindHost(hostname)
+}
+
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -341,7 +356,7 @@ export const WebAccessPane: React.FC = () => {
   const showLocalhostUrl =
     isLoopbackBindHost(activeBindHost) || isWildcardBindHost(activeBindHost)
   const showBoundUrl =
-    Boolean(boundUrl) && !isLoopbackBindHost(activeBindHost)
+    hasUsableBoundUrl(boundUrl) && !isLoopbackBindHost(activeBindHost)
 
   if (!isNativeApp()) {
     return (

@@ -692,11 +692,53 @@ pub(crate) fn validate_bind_host(host: &str) -> Result<String, String> {
 }
 
 fn display_host_for_bind_ip(bind_ip: IpAddr) -> String {
-    if bind_ip == IpAddr::V4(Ipv4Addr::UNSPECIFIED) {
-        get_local_ip().unwrap_or_else(|| Ipv4Addr::LOCALHOST.to_string())
-    } else {
-        bind_ip.to_string()
+    display_ip_for_bind_ip_with_candidates(
+        bind_ip,
+        get_if_addrs()
+            .into_iter()
+            .flatten()
+            .map(|interface| interface.ip()),
+    )
+    .to_string()
+}
+
+fn display_ip_for_bind_ip_with_candidates(
+    bind_ip: IpAddr,
+    candidates: impl IntoIterator<Item = IpAddr>,
+) -> IpAddr {
+    if !bind_ip.is_unspecified() {
+        return bind_ip;
     }
+
+    let mut ipv4_candidate = None;
+    let mut ipv6_candidate = None;
+
+    for ip in candidates {
+        if !is_displayable_bind_ip_candidate(ip) {
+            continue;
+        }
+
+        match ip {
+            IpAddr::V4(_) if ipv4_candidate.is_none() => ipv4_candidate = Some(ip),
+            IpAddr::V6(_) if ipv6_candidate.is_none() => ipv6_candidate = Some(ip),
+            _ => {}
+        }
+    }
+
+    match bind_ip {
+        IpAddr::V4(_) => ipv4_candidate.unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST)),
+        IpAddr::V6(_) => ipv6_candidate
+            .or(ipv4_candidate)
+            .unwrap_or(IpAddr::V6(Ipv6Addr::LOCALHOST)),
+    }
+}
+
+fn is_displayable_bind_ip_candidate(ip: IpAddr) -> bool {
+    if ip.is_loopback() || ip.is_unspecified() || ip.is_multicast() {
+        return false;
+    }
+
+    !matches!(ip, IpAddr::V6(v6) if v6.is_unicast_link_local())
 }
 
 fn format_http_url(host: &str, port: u16) -> String {
@@ -729,10 +771,7 @@ pub fn list_bind_host_options() -> Vec<BindHostOption> {
     if let Ok(interfaces) = get_if_addrs() {
         for interface in interfaces {
             let ip = interface.ip();
-            if ip.is_loopback() || ip.is_unspecified() || ip.is_multicast() {
-                continue;
-            }
-            if matches!(ip, IpAddr::V6(v6) if v6.is_unicast_link_local()) {
+            if !is_displayable_bind_ip_candidate(ip) {
                 continue;
             }
 
@@ -789,15 +828,6 @@ fn is_tailscale_ipv6(ip: Ipv6Addr) -> bool {
     segments[0] == 0xfd7a && segments[1] == 0x115c && segments[2] == 0xa1e0
 }
 
-/// Get the local LAN IP address.
-fn get_local_ip() -> Option<String> {
-    use std::net::UdpSocket;
-    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
-    socket.connect("8.8.8.8:80").ok()?;
-    let addr = socket.local_addr().ok()?;
-    Some(addr.ip().to_string())
-}
-
 /// Get current server status. Called from dispatch.
 pub async fn get_server_status(app: AppHandle) -> ServerStatus {
     match app.try_state::<Arc<Mutex<Option<HttpServerHandle>>>>() {
@@ -836,8 +866,9 @@ pub async fn get_server_status(app: AppHandle) -> ServerStatus {
 #[cfg(test)]
 mod tests {
     use super::{
-        bind_host_option_label, bind_host_option_rank, display_host_for_bind_ip, format_http_url,
-        is_tailscale_ipv4, parse_bind_ip, validate_bind_host,
+        bind_host_option_label, bind_host_option_rank, display_host_for_bind_ip,
+        display_ip_for_bind_ip_with_candidates, format_http_url, is_tailscale_ipv4, parse_bind_ip,
+        validate_bind_host,
     };
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
@@ -869,7 +900,10 @@ mod tests {
     #[test]
     fn validate_bind_host_trims_and_normalizes_localhost() {
         assert_eq!(validate_bind_host(" LOCALHOST ").unwrap(), "localhost");
-        assert_eq!(validate_bind_host(" 100.110.76.47 ").unwrap(), "100.110.76.47");
+        assert_eq!(
+            validate_bind_host(" 100.110.76.47 ").unwrap(),
+            "100.110.76.47"
+        );
     }
 
     #[test]
@@ -885,12 +919,81 @@ mod tests {
     }
 
     #[test]
+    fn ipv4_wildcard_display_host_uses_first_valid_ipv4_candidate() {
+        assert_eq!(
+            display_ip_for_bind_ip_with_candidates(
+                IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+                [
+                    IpAddr::V6(Ipv6Addr::LOCALHOST),
+                    IpAddr::V4(Ipv4Addr::new(192, 168, 1, 25)),
+                    IpAddr::V6("fd7a:115c:a1e0::1".parse::<Ipv6Addr>().unwrap()),
+                ],
+            ),
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 25))
+        );
+    }
+
+    #[test]
+    fn ipv6_wildcard_display_host_prefers_valid_ipv6_candidate() {
+        assert_eq!(
+            display_ip_for_bind_ip_with_candidates(
+                IpAddr::V6(Ipv6Addr::UNSPECIFIED),
+                [
+                    IpAddr::V4(Ipv4Addr::new(192, 168, 1, 25)),
+                    IpAddr::V6("fd7a:115c:a1e0::1".parse::<Ipv6Addr>().unwrap()),
+                ],
+            ),
+            IpAddr::V6("fd7a:115c:a1e0::1".parse::<Ipv6Addr>().unwrap())
+        );
+    }
+
+    #[test]
+    fn ipv6_wildcard_display_host_falls_back_to_ipv4_when_needed() {
+        assert_eq!(
+            display_ip_for_bind_ip_with_candidates(
+                IpAddr::V6(Ipv6Addr::UNSPECIFIED),
+                [IpAddr::V4(Ipv4Addr::new(192, 168, 1, 25))],
+            ),
+            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 25))
+        );
+    }
+
+    #[test]
+    fn ipv6_wildcard_display_host_falls_back_to_ipv6_localhost_when_no_candidates() {
+        assert_eq!(
+            display_ip_for_bind_ip_with_candidates(IpAddr::V6(Ipv6Addr::UNSPECIFIED), []),
+            IpAddr::V6(Ipv6Addr::LOCALHOST)
+        );
+    }
+
+    #[test]
     fn format_http_url_wraps_ipv6_hosts() {
         assert_eq!(
             format_http_url("100.64.0.1", 3456),
             "http://100.64.0.1:3456"
         );
         assert_eq!(format_http_url("::1", 3456), "http://[::1]:3456");
+    }
+
+    #[test]
+    fn wildcard_display_urls_never_use_unspecified_hosts() {
+        let ipv6_url = format_http_url(
+            &display_ip_for_bind_ip_with_candidates(
+                IpAddr::V6(Ipv6Addr::UNSPECIFIED),
+                [IpAddr::V6("fd7a:115c:a1e0::1".parse::<Ipv6Addr>().unwrap())],
+            )
+            .to_string(),
+            3456,
+        );
+        assert_eq!(ipv6_url, "http://[fd7a:115c:a1e0::1]:3456");
+
+        let fallback_url = format_http_url(
+            &display_ip_for_bind_ip_with_candidates(IpAddr::V6(Ipv6Addr::UNSPECIFIED), [])
+                .to_string(),
+            3456,
+        );
+        assert_ne!(fallback_url, "http://[::]:3456");
+        assert_eq!(fallback_url, "http://[::1]:3456");
     }
 
     #[test]

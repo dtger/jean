@@ -45,7 +45,10 @@ pub fn get_mcp_servers(worktree_path: Option<&str>) -> Vec<McpServerInfo> {
         //    OpenCode uses the xdg-basedir package which always resolves to $HOME/.config
         //    on all platforms (macOS, Linux, Windows), NOT the platform-native config dir.
         let config_dir = home.join(".config").join("opencode");
-        log::debug!("OpenCode MCP: looking for global config in {}", config_dir.display());
+        log::debug!(
+            "OpenCode MCP: looking for global config in {}",
+            config_dir.display()
+        );
         if let Some(path) = find_opencode_config(&config_dir) {
             log::debug!("OpenCode MCP: found global config at {}", path.display());
             collect_from_opencode_json(&path, "user", &mut servers, &mut seen_names);

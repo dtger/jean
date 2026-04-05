@@ -206,7 +206,10 @@ fn extract_plain_text_plan_sections(text: &str) -> Option<(Option<String>, Strin
         return None;
     }
 
-    let plan_heading_match = normalized.match_indices("\nPlan:\n").last().map(|(idx, _)| idx);
+    let plan_heading_match = normalized
+        .match_indices("\nPlan:\n")
+        .last()
+        .map(|(idx, _)| idx);
     let plan_start = if normalized.starts_with("Plan:\n") {
         Some(0)
     } else {
@@ -222,10 +225,7 @@ fn extract_plain_text_plan_sections(text: &str) -> Option<(Option<String>, Strin
         let trimmed = line.trim_start();
         trimmed.starts_with("- ")
             || trimmed.starts_with("* ")
-            || trimmed
-                .chars()
-                .next()
-                .is_some_and(|c| c.is_ascii_digit())
+            || trimmed.chars().next().is_some_and(|c| c.is_ascii_digit())
     });
 
     if !has_plan_body || !looks_structured {
@@ -970,10 +970,7 @@ fn process_turn_events(
     // inside PlanDisplay instead of as unformatted text.
     // Also remove duplicate text blocks whose content matches the plan text.
     if !cancelled && !error_emitted && is_plan_mode && !full_content.is_empty() {
-        if let Some(tc) = tool_calls
-            .iter()
-            .find(|tc| tc.name == CODEX_PLAN_TOOL_NAME)
-        {
+        if let Some(tc) = tool_calls.iter().find(|tc| tc.name == CODEX_PLAN_TOOL_NAME) {
             let has_plan = tc
                 .input
                 .get("plan")
@@ -981,14 +978,14 @@ fn process_turn_events(
                 .is_some_and(|s| !s.is_empty());
             if !has_plan {
                 let tool_id = tc.id.clone();
-                let input =
-                    merge_codex_plan_input(Some(&tc.input), Some(full_content.clone()), None, None, None);
-                upsert_codex_plan_tool_call(
-                    &mut tool_calls,
-                    &mut content_blocks,
-                    &tool_id,
-                    input,
+                let input = merge_codex_plan_input(
+                    Some(&tc.input),
+                    Some(full_content.clone()),
+                    None,
+                    None,
+                    None,
                 );
+                upsert_codex_plan_tool_call(&mut tool_calls, &mut content_blocks, &tool_id, input);
                 // Remove text blocks that duplicate the plan content
                 content_blocks.retain(|block| {
                     !matches!(block, ContentBlock::Text { text } if text.trim() == full_content.trim())
@@ -1312,16 +1309,13 @@ fn process_server_notification(
                 // In plan mode, merge final_answer text into the CodexPlan tool
                 // so it renders inside PlanDisplay instead of as plain text.
                 // Skip process_codex_event to avoid creating a duplicate ContentBlock::Text.
-                let is_final_answer = event_item
-                    .get("phase")
-                    .and_then(|v| v.as_str())
-                    == Some("final_answer");
+                let is_final_answer =
+                    event_item.get("phase").and_then(|v| v.as_str()) == Some("final_answer");
                 if is_plan_mode && is_final_answer {
                     let answer_text = extract_agent_message_text(&event_item);
                     if let Some(text) = answer_text.filter(|t| !t.is_empty()) {
-                        if let Some(existing_plan_tc) = tool_calls
-                            .iter()
-                            .find(|tc| tc.name == CODEX_PLAN_TOOL_NAME)
+                        if let Some(existing_plan_tc) =
+                            tool_calls.iter().find(|tc| tc.name == CODEX_PLAN_TOOL_NAME)
                         {
                             let tool_id = existing_plan_tc.id.clone();
                             let existing_input = Some(&existing_plan_tc.input);
@@ -1339,7 +1333,11 @@ fn process_server_notification(
                                 input.clone(),
                             );
                             emit_codex_plan_tool_call(
-                                app, session_id, worktree_id, &tool_id, &input,
+                                app,
+                                session_id,
+                                worktree_id,
+                                &tool_id,
+                                &input,
                             );
                             // Still accumulate into full_content for the final response
                             if !full_content.contains(&text) {
@@ -1701,16 +1699,11 @@ fn handle_approval_request(
                 .get("serverName")
                 .and_then(|v| v.as_str())
                 .unwrap_or_default();
-            log::trace!(
-                "Auto-accepting MCP elicitation from '{server_name}' (rpc_id={rpc_id})"
-            );
-            if let Err(e) = super::codex_server::send_response(
-                rpc_id,
-                serde_json::json!({"action": "accept"}),
-            ) {
-                log::error!(
-                    "Failed to auto-accept MCP elicitation (rpc_id={rpc_id}): {e}"
-                );
+            log::trace!("Auto-accepting MCP elicitation from '{server_name}' (rpc_id={rpc_id})");
+            if let Err(e) =
+                super::codex_server::send_response(rpc_id, serde_json::json!({"action": "accept"}))
+            {
+                log::error!("Failed to auto-accept MCP elicitation (rpc_id={rpc_id}): {e}");
                 emit_connection_error();
             }
         }
@@ -2057,7 +2050,12 @@ fn process_codex_event(
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string());
                     let input = merge_codex_plan_input(existing, plan_text, None, None, None);
-                    upsert_codex_plan_tool_call(tool_calls, content_blocks, &tool_id, input.clone());
+                    upsert_codex_plan_tool_call(
+                        tool_calls,
+                        content_blocks,
+                        &tool_id,
+                        input.clone(),
+                    );
                     emit_codex_plan_tool_call(app, session_id, worktree_id, &tool_id, &input);
                 }
                 // Informational tool-like events — surface as tool calls in the UI
@@ -2162,7 +2160,12 @@ fn process_codex_event(
                                 .map(|s| s.to_string())
                         });
                     let input = merge_codex_plan_input(existing, plan_text, None, None, None);
-                    upsert_codex_plan_tool_call(tool_calls, content_blocks, &tool_id, input.clone());
+                    upsert_codex_plan_tool_call(
+                        tool_calls,
+                        content_blocks,
+                        &tool_id,
+                        input.clone(),
+                    );
                     emit_codex_plan_tool_call(app, session_id, worktree_id, &tool_id, &input);
                 }
                 "command_execution" => {
@@ -2710,15 +2713,12 @@ pub fn parse_codex_run_to_message(
 
                             // In plan mode, merge final_answer into the CodexPlan tool
                             // and skip the ContentBlock::Text to avoid rendering twice.
-                            let is_final_answer = item
-                                .get("phase")
-                                .and_then(|v| v.as_str())
-                                == Some("final_answer");
+                            let is_final_answer =
+                                item.get("phase").and_then(|v| v.as_str()) == Some("final_answer");
                             let mut merged_into_plan = false;
                             if is_plan_mode && is_final_answer && !text.is_empty() {
-                                if let Some(existing_tc) = tool_calls
-                                    .iter()
-                                    .find(|tc| tc.name == CODEX_PLAN_TOOL_NAME)
+                                if let Some(existing_tc) =
+                                    tool_calls.iter().find(|tc| tc.name == CODEX_PLAN_TOOL_NAME)
                                 {
                                     let tool_id = existing_tc.id.clone();
                                     let input = merge_codex_plan_input(
@@ -2869,10 +2869,7 @@ pub fn parse_codex_run_to_message(
 
         // Fallback: if CodexPlan exists but has no plan text, inject full content
         if !content.is_empty() {
-            if let Some(tc) = tool_calls
-                .iter()
-                .find(|tc| tc.name == CODEX_PLAN_TOOL_NAME)
-            {
+            if let Some(tc) = tool_calls.iter().find(|tc| tc.name == CODEX_PLAN_TOOL_NAME) {
                 let has_plan = tc
                     .input
                     .get("plan")

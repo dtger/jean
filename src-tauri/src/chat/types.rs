@@ -825,10 +825,7 @@ impl SessionMetadata {
             .last()
             .map(|r| r.ended_at.unwrap_or(r.started_at))
             .unwrap_or(self.created_at);
-        let last_message_at = self
-            .runs
-            .last()
-            .map(|r| r.ended_at.unwrap_or(r.started_at));
+        let last_message_at = self.runs.last().map(|r| r.ended_at.unwrap_or(r.started_at));
         Session {
             id: self.id.clone(),
             name: self.name.clone(),
