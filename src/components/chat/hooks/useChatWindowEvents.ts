@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react'
+import { useCallback, useEffect, useRef, type RefObject } from 'react'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { invoke } from '@/lib/transport'
 import { toast } from 'sonner'
@@ -141,13 +141,47 @@ export function useChatWindowEvents({
   endKeyboardScroll,
 }: UseChatWindowEventsParams) {
   const isMobile = useIsMobile()
+  const focusChatInput = useCallback(() => {
+    inputRef.current?.focus()
+  }, [inputRef])
 
   // Focus input on mount, session change, or worktree change (skip on mobile to avoid keyboard popup)
   useEffect(() => {
     if (!isMobile) {
-      inputRef.current?.focus()
+      focusChatInput()
     }
-  }, [activeSessionId, activeWorktreeId, inputRef, isMobile])
+  }, [activeSessionId, activeWorktreeId, focusChatInput, isMobile])
+
+  // When opening a worktree with a visible terminal, xterm can asynchronously
+  // steal focus after the chat input focused. Re-assert focus for a short
+  // window, but only if focus is still on the body or inside the terminal.
+  useEffect(() => {
+    if (isMobile || !activeWorktreeId) return
+
+    const shouldReassertFocus = () => {
+      const activeElement = document.activeElement as HTMLElement | null
+      return (
+        !activeElement ||
+        activeElement === document.body ||
+        activeElement.tagName === 'BODY' ||
+        !!activeElement.closest('.xterm')
+      )
+    }
+
+    const timeouts = [0, 75, 200].map(delay =>
+      window.setTimeout(() => {
+        if (shouldReassertFocus()) {
+          focusChatInput()
+        }
+      }, delay)
+    )
+
+    return () => {
+      for (const timeout of timeouts) {
+        window.clearTimeout(timeout)
+      }
+    }
+  }, [activeWorktreeId, focusChatInput, isMobile])
 
   // Scroll to bottom on worktree switch
   useEffect(() => {
@@ -172,10 +206,10 @@ export function useChatWindowEvents({
 
   // CMD+L / toolbar selection: Focus chat input
   useEffect(() => {
-    const handler = () => inputRef.current?.focus()
+    const handler = () => focusChatInput()
     window.addEventListener('focus-chat-input', handler)
     return () => window.removeEventListener('focus-chat-input', handler)
-  }, [inputRef])
+  }, [focusChatInput])
 
   // P key: Open plan dialog
   useEffect(() => {
@@ -467,12 +501,7 @@ export function useChatWindowEvents({
     }
     window.addEventListener('approve-plan', handler)
     return () => window.removeEventListener('approve-plan', handler)
-  }, [
-    isModal,
-    hasPendingPlanApproval,
-    pendingPlanMessage,
-    handlePlanApproval,
-  ])
+  }, [isModal, hasPendingPlanApproval, pendingPlanMessage, handlePlanApproval])
 
   // CMD+Up/Down: Scroll chat by one page with eased animation
   const scrollAnimationRef = useRef<number | null>(null)

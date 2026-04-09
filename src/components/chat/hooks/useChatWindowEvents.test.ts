@@ -35,16 +35,20 @@ vi.mock('sonner', () => ({
 describe('useChatWindowEvents worktree approval shortcuts', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.useRealTimers()
+    document.body.innerHTML = ''
     useUIStore.setState({
       sessionChatModalOpen: false,
       sessionChatModalWorktreeId: null,
     })
   })
 
-  function renderUseChatWindowEvents(overrides: Partial<Parameters<
-    typeof useChatWindowEvents
-  >[0]> = {}) {
-    const inputRef = { current: null }
+  function renderUseChatWindowEvents(
+    overrides: Partial<Parameters<typeof useChatWindowEvents>[0]> = {}
+  ) {
+    const input = document.createElement('textarea')
+    document.body.appendChild(input)
+    const inputRef = { current: input }
     const scrollViewportRef = { current: null }
 
     const params: Parameters<typeof useChatWindowEvents>[0] = {
@@ -97,6 +101,26 @@ describe('useChatWindowEvents worktree approval shortcuts', () => {
     renderHook(() => useChatWindowEvents(params))
     return params
   }
+
+  it('re-focuses chat input after terminal steals focus on worktree open', () => {
+    vi.useFakeTimers()
+
+    const terminal = document.createElement('div')
+    terminal.className = 'xterm'
+    const terminalInput = document.createElement('textarea')
+    terminal.appendChild(terminalInput)
+    document.body.appendChild(terminal)
+
+    const params = renderUseChatWindowEvents()
+
+    window.setTimeout(() => {
+      terminalInput.focus()
+    }, 10)
+
+    vi.advanceTimersByTime(250)
+
+    expect(document.activeElement).toBe(params.inputRef.current)
+  })
 
   it('handles worktree build approval for a pending plan', () => {
     const params = renderUseChatWindowEvents()
