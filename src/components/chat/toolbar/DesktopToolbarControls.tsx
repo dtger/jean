@@ -1,6 +1,5 @@
 import {
   Brain,
-  ChevronDown,
   CircleDot,
   ClipboardList,
   ExternalLink,
@@ -241,7 +240,7 @@ export function DesktopToolbarControls({
 
       <button
         type="button"
-        className="hidden @xl:flex h-8 items-center gap-1 rounded-l-lg px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+        className="hidden @xl:flex h-8 items-center gap-1 px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
         disabled={hasPendingQuestions}
         onClick={onOpenMagicModal}
       >
@@ -270,7 +269,6 @@ export function DesktopToolbarControls({
                   )}
                 />
                 {activeMcpCount > 0 && <span>{activeMcpCount}</span>}
-                <ChevronDown className="h-3 w-3 opacity-50" />
               </button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
@@ -385,7 +383,6 @@ export function DesktopToolbarControls({
                     .filter(Boolean)
                     .join(', ')}
                 </span>
-                <ChevronDown className="h-3 w-3 opacity-50" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-64">
@@ -660,7 +657,6 @@ export function DesktopToolbarControls({
                           ? 'Codex'
                           : 'OpenCode'}
                     </span>
-                    <ChevronDown className="h-3 w-3 opacity-50" />
                   </button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
@@ -716,7 +712,6 @@ export function DesktopToolbarControls({
                       className="hidden @xl:flex h-8 items-center gap-1.5 px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
                     >
                       <span>{providerDisplayName}</span>
-                      <ChevronDown className="h-3 w-3 opacity-50" />
                     </button>
                   </DropdownMenuTrigger>
                 </TooltipTrigger>
@@ -783,7 +778,6 @@ export function DesktopToolbarControls({
               >
                 <Sparkles className="h-3.5 w-3.5 shrink-0" />
                 <span className="max-w-48 truncate">{selectedModelLabel}</span>
-                <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
               </button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
@@ -879,7 +873,6 @@ export function DesktopToolbarControls({
                       )?.label
                     }
                   </span>
-                  <ChevronDown className="h-3 w-3 opacity-50" />
                 </button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
@@ -936,7 +929,6 @@ export function DesktopToolbarControls({
                       )?.label
                     }
                   </span>
-                  <ChevronDown className="h-3 w-3 opacity-50" />
                 </button>
               </DropdownMenuTrigger>
             </TooltipTrigger>
@@ -988,7 +980,6 @@ export function DesktopToolbarControls({
                 {executionMode === 'yolo' && (
                   <Zap className="h-3.5 w-3.5 text-red-500 dark:text-red-400" />
                 )}
-                <ChevronDown className="h-3 w-3 opacity-50" />
               </button>
             </DropdownMenuTrigger>
           </TooltipTrigger>

@@ -559,3 +559,15 @@ kbd {
   border: 1px solid transparent;
   background-clip: padding-box;
 }
+
+.xterm,
+.xterm .xterm-viewport,
+.xterm .xterm-screen,
+.xterm .xterm-screen canvas {
+  background-color: var(--background) !important;
+}
+
+.xterm .composition-view {
+  background-color: var(--background) !important;
+  color: var(--foreground) !important;
+}

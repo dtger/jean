@@ -2350,16 +2350,16 @@ export function ChatWindow({
                                 {(currentStreamingContentBlocks.length > 0 ||
                                   currentToolCalls.length > 0 ||
                                   streamingContent.trim().length > 0) && (
-                                <StreamingMessage
-                                  sessionId={activeSessionId}
-                                  contentBlocks={
-                                    currentStreamingContentBlocks
-                                  }
-                                  toolCalls={currentToolCalls}
-                                  streamingContent={streamingContent}
-                                  onQuestionAnswer={handleQuestionAnswer}
-                                  onQuestionSkip={handleSkipQuestion}
-                                  onFileClick={setViewingFilePath}
+                                  <StreamingMessage
+                                    sessionId={activeSessionId}
+                                    contentBlocks={
+                                      currentStreamingContentBlocks
+                                    }
+                                    toolCalls={currentToolCalls}
+                                    streamingContent={streamingContent}
+                                    onQuestionAnswer={handleQuestionAnswer}
+                                    onQuestionSkip={handleSkipQuestion}
+                                    onFileClick={setViewingFilePath}
                                     onEditedFileClick={setViewingFilePath}
                                     isQuestionAnswered={isQuestionAnswered}
                                     getSubmittedAnswers={getSubmittedAnswers}
@@ -2559,7 +2559,7 @@ export function ChatWindow({
                             ref={formRef}
                             onSubmit={handleSubmit}
                             className={cn(
-                              'relative overflow-hidden border-t border-border bg-sidebar transition-[background-color,box-shadow] duration-150 sm:rounded-lg sm:border',
+                              'relative overflow-hidden border-t border-border bg-card transition-[background-color,box-shadow] duration-150 sm:rounded-lg sm:border',
                               isDragging &&
                                 'ring-2 ring-primary ring-inset bg-primary/5'
                             )}

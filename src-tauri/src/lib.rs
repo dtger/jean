@@ -454,6 +454,7 @@ fn resolve_http_server_bind_host(prefs: &AppPreferences) -> String {
 #[cfg(test)]
 mod tests {
     use super::{resolve_http_server_bind_host, AppPreferences};
+    use serde_json::json;
 
     #[test]
     fn resolve_http_server_bind_host_prefers_explicit_host() {
@@ -473,6 +474,59 @@ mod tests {
 
         prefs.http_server_localhost_only = false;
         assert_eq!(resolve_http_server_bind_host(&prefs), "0.0.0.0");
+    }
+
+    #[test]
+    fn app_preferences_preserve_review_comments_magic_prompt_overrides() {
+        let mut prefs_json = serde_json::to_value(AppPreferences::default()).unwrap();
+        let object = prefs_json.as_object_mut().unwrap();
+
+        object.insert(
+            "magic_prompt_models".to_string(),
+            json!({
+                "review_comments_model": "gpt-5.4",
+            }),
+        );
+        object.insert(
+            "magic_prompt_providers".to_string(),
+            json!({
+                "review_comments_provider": "foo",
+            }),
+        );
+        object.insert(
+            "magic_prompt_backends".to_string(),
+            json!({
+                "review_comments_backend": "codex",
+            }),
+        );
+        object.insert(
+            "magic_prompt_efforts".to_string(),
+            json!({
+                "review_comments_effort": "medium",
+            }),
+        );
+
+        let prefs: AppPreferences = serde_json::from_value(prefs_json).unwrap();
+
+        assert_eq!(prefs.magic_prompt_models.review_comments_model, "gpt-5.4");
+        assert_eq!(
+            prefs
+                .magic_prompt_providers
+                .review_comments_provider
+                .as_deref(),
+            Some("foo")
+        );
+        assert_eq!(
+            prefs
+                .magic_prompt_backends
+                .review_comments_backend
+                .as_deref(),
+            Some("codex")
+        );
+        assert_eq!(
+            prefs.magic_prompt_efforts.review_comments_effort.as_deref(),
+            Some("medium")
+        );
     }
 }
 
@@ -881,6 +935,154 @@ Investigate the loaded Linear {linearWord} ({linearRefs})
         .to_string()
 }
 
+fn default_release_notes_prompt() -> String {
+    r#"Generate release notes for changes since the `{tag}` release ({previous_release_name}).
+
+## Commits since {tag}
+
+{commits}
+
+## Instructions
+
+- Write a concise release title
+- Group changes into categories: Features, Fixes, Improvements, Breaking Changes (only include categories that have entries)
+- Use bullet points with brief descriptions
+- Reference PR numbers if visible in commit messages
+- Skip merge commits and trivial changes (typos, formatting)
+- Write in past tense ("Added", "Fixed", "Improved")
+- Keep it concise and user-facing (skip internal implementation details)"#
+        .to_string()
+}
+
+fn default_session_naming_prompt() -> String {
+    r#"<task>Generate a short, human-friendly name for this chat session based on the user's request.</task>
+
+<rules>
+- Maximum 4-5 words total
+- Use sentence case (only capitalize first word)
+- Be descriptive but concise
+- Focus on the main topic or goal
+- No special characters or punctuation
+- No generic names like "Chat session" or "New task"
+- Do NOT use commit-style prefixes like "Add", "Fix", "Update", "Refactor"
+</rules>
+
+<user_request>
+{message}
+</user_request>
+
+<output_format>
+Respond with ONLY the raw JSON object, no markdown, no code fences, no explanation:
+{"session_name": "Your session name here"}
+</output_format>"#
+        .to_string()
+}
+
+fn default_global_system_prompt() -> String {
+    r#"### 1. Plan Mode Default
+- Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions)
+- If something goes sideways, STOP and re-plan immediately - don't keep pushing
+- Use plan mode for verification steps, not just building
+- Write detailed specs upfront to reduce ambiguity
+- Make the plan extremely concise. Sacrifice grammar for the sake of concision.
+- At the end of each plan, give me a list of unresolved questions to answer, if any.
+
+### 2. Subagent Strategy to keep main context window clean
+- Offload research, exploration, and parallel analysis to subagents
+- For complex problems, throw more compute at it via subagents
+- One task per subagent for focused execution
+
+### 3. Self-Improvement Loop
+- After ANY correction from the user: update '.ai/lessons.md' with the pattern
+- Write rules for yourself that prevent the same mistake
+- Ruthlessly iterate on these lessons until mistake rate drops
+- Review lessons at session start for relevant project
+
+### 4. Verification Before Done
+- Never mark a task complete without proving it works
+- Diff behavior between main and your changes when relevant
+- Ask yourself: "Would a staff engineer approve this?"
+- Run tests, check logs, demonstrate correctness
+
+### 5. Demand Elegance (Balanced)
+- For non-trivial changes: pause and ask "is there a more elegant way?"
+- If a fix feels hacky: "Knowing everything I know now, implement the elegant solution"
+- Skip this for simple, obvious fixes - don't over-engineer
+- Challenge your own work before presenting it
+
+### 6. Autonomous Bug Fixing
+- When given a bug report: just fix it. Don't ask for hand-holding
+- Point at logs, errors, failing tests -> then resolve them
+- Zero context switching required from the user
+- Go fix failing CI tests without being told how
+
+## Task Management
+1. **Plan First**: Write plan to '.ai/todo.md' with checkable items
+2. **Verify Plan**: Check in before starting implementation
+3. **Track Progress**: Mark items complete as you go
+4. **Explain Changes**: High-level summary at each step
+5. **Document Results**: Add review to '.ai/todo.md'
+6. **Capture Lessons**: Update '.ai/lessons.md' after corrections
+
+## Core Principles
+- **Simplicity First**: Make every change as simple as possible. Impact minimal code.
+- **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
+- **Minimal Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
+
+## Important!
+
+- After each finished task, please write a few bullet points on how to test the changes."#
+        .to_string()
+}
+
+fn default_session_recap_prompt() -> String {
+    r#"You are a summarization assistant. Your ONLY job is to summarize the following conversation transcript. Do NOT continue the conversation or take any actions. Just summarize.
+
+CONVERSATION TRANSCRIPT:
+{conversation}
+
+END OF TRANSCRIPT.
+
+Now provide a brief summary with exactly two fields:
+- chat_summary: One sentence (max 100 chars) describing the overall goal and current status
+- last_action: One sentence (max 200 chars) describing what was just completed in the last exchange"#
+        .to_string()
+}
+
+fn default_review_comments_prompt() -> String {
+    r#"<task>
+
+Address the following review comments from PR #{prNumber}
+
+</task>
+
+
+<review_comments>
+{reviewComments}
+</review_comments>
+
+
+<instructions>
+
+1. Read each review comment carefully, noting the file path, line numbers, and diff context
+2. Understand what the reviewer is asking for in each comment
+3. Make the requested changes to address each comment
+4. If a comment is unclear or you disagree with it, explain your reasoning
+5. After making changes, briefly summarize what you changed for each comment
+
+</instructions>
+
+
+<guidelines>
+
+- Be thorough but focused — address exactly what was requested
+- If a comment requires a larger refactor, explain the scope before proceeding
+- Run tests after making changes to ensure nothing is broken
+
+</guidelines>"#
+        .to_string()
+}
+
 fn default_parallel_execution_prompt() -> String {
     r#"In plan mode, structure plans so subagents can work simultaneously. In build/execute mode, use subagents in parallel for faster implementation.
 
@@ -923,6 +1125,8 @@ pub struct MagicPromptModels {
     pub investigate_advisory_model: String,
     #[serde(default = "default_model")]
     pub investigate_linear_issue_model: String,
+    #[serde(default = "default_model")]
+    pub review_comments_model: String,
 }
 
 fn default_haiku_model() -> String {
@@ -946,6 +1150,7 @@ impl Default for MagicPromptModels {
             investigate_security_alert_model: default_model(),
             investigate_advisory_model: default_model(),
             investigate_linear_issue_model: default_model(),
+            review_comments_model: default_model(),
         }
     }
 }
@@ -993,6 +1198,8 @@ pub struct MagicPromptProviders {
     pub investigate_advisory_provider: Option<String>,
     #[serde(default)]
     pub investigate_linear_issue_provider: Option<String>,
+    #[serde(default)]
+    pub review_comments_provider: Option<String>,
 }
 
 /// Per-prompt backend overrides for magic prompts (None = use project/global default_backend)
@@ -1026,6 +1233,8 @@ pub struct MagicPromptBackends {
     pub investigate_advisory_backend: Option<String>,
     #[serde(default)]
     pub investigate_linear_issue_backend: Option<String>,
+    #[serde(default)]
+    pub review_comments_backend: Option<String>,
 }
 
 /// Per-prompt reasoning effort overrides for magic prompts (None = use model default)
@@ -1059,6 +1268,8 @@ pub struct MagicPromptReasoningEfforts {
     pub investigate_advisory_effort: Option<String>,
     #[serde(default)]
     pub investigate_linear_issue_effort: Option<String>,
+    #[serde(default)]
+    pub review_comments_effort: Option<String>,
 }
 
 impl MagicPrompts {
@@ -1066,7 +1277,7 @@ impl MagicPrompts {
     /// This ensures users who never customized a prompt get auto-updated defaults.
     fn migrate_defaults(&mut self) {
         type DefaultEntry<'a> = (fn() -> String, &'a mut Option<String>);
-        let defaults: [DefaultEntry; 12] = [
+        let defaults: [DefaultEntry; 17] = [
             (
                 default_investigate_issue_prompt,
                 &mut self.investigate_issue,
@@ -1084,10 +1295,14 @@ impl MagicPrompts {
                 default_investigate_workflow_run_prompt,
                 &mut self.investigate_workflow_run,
             ),
+            (default_release_notes_prompt, &mut self.release_notes),
+            (default_session_naming_prompt, &mut self.session_naming),
             (
                 default_parallel_execution_prompt,
                 &mut self.parallel_execution,
             ),
+            (default_global_system_prompt, &mut self.global_system_prompt),
+            (default_session_recap_prompt, &mut self.session_recap),
             (
                 default_investigate_security_alert_prompt,
                 &mut self.investigate_security_alert,
@@ -1100,6 +1315,7 @@ impl MagicPrompts {
                 default_investigate_linear_issue_prompt,
                 &mut self.investigate_linear_issue,
             ),
+            (default_review_comments_prompt, &mut self.review_comments),
         ];
 
         for (default_fn, field) in defaults {

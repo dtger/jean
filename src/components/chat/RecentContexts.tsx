@@ -163,7 +163,7 @@ export function RecentContexts({
     return (
       <div
         key={ctx.id}
-        className="flex items-center w-[200px] rounded-md border border-border bg-muted/50 text-xs text-foreground transition-colors"
+        className="flex items-center w-[200px] rounded-md border border-border bg-muted/50 text-xs text-muted-foreground transition-colors"
       >
         <button
           onClick={() => handleToggle(ctx)}

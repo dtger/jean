@@ -100,7 +100,7 @@ function KeybindingHintsButton({
         <Button
           variant="ghost"
           size="icon"
-          className="h-7 w-7 rounded-full text-muted-foreground hover:text-foreground"
+          className="h-7 w-7 text-muted-foreground hover:text-foreground"
         >
           <CircleHelp className="size-4" />
           <span className="sr-only">Keyboard shortcuts</span>
@@ -134,9 +134,9 @@ function ConnectionIndicator() {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div className="inline-flex h-7 items-center gap-1.5 rounded-full px-2 text-[11px] leading-none text-muted-foreground">
+        <div className="inline-flex h-7 items-center gap-1.5 px-2 text-[11px] leading-none text-muted-foreground">
           <span
-            className={`inline-block size-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}
+            className={`inline-block size-2 ${connected ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}
           />
         </div>
       </TooltipTrigger>
@@ -406,7 +406,7 @@ export function FloatingDock() {
 
   return (
     <div
-      className="absolute right-4 z-10 flex flex-row items-center gap-0.5 rounded-full border border-border/30 bg-background/60 backdrop-blur-md px-1 py-0.5 transition-[bottom] duration-200 sm:left-4 sm:right-auto sm:flex-col sm:rounded-2xl sm:px-0.5 sm:py-1 xl:flex-row xl:rounded-full xl:px-1 xl:py-0.5"
+      className="absolute right-4 z-10 flex flex-row items-center gap-0.5 rounded-lg border border-border bg-muted/50 backdrop-blur-md px-1 py-0.5 transition-[bottom] duration-200 sm:left-4 sm:right-auto sm:flex-col  sm:px-0.5 sm:py-1 xl:flex-row  xl:px-1 xl:py-0.5"
       style={{ bottom: `${bottomOffset}px` }}
     >
       <DropdownMenu open={menuOpen} onOpenChange={handleQuickMenuOpenChange}>
@@ -416,7 +416,7 @@ export function FloatingDock() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 rounded-full text-muted-foreground hover:text-foreground"
+                className="h-7 w-7 text-muted-foreground hover:text-foreground"
               >
                 <Menu className="size-4" />
                 <span className="sr-only">Quick menu</span>
@@ -514,7 +514,7 @@ export function FloatingDock() {
           <Button
             variant="ghost"
             size="icon"
-            className="h-7 w-7 rounded-full text-muted-foreground hover:text-foreground"
+            className="h-7 w-7 text-muted-foreground hover:text-foreground"
             onClick={() => useUIStore.getState().setCommandPaletteOpen(true)}
           >
             <Command className="size-4" />
@@ -537,8 +537,8 @@ export function FloatingDock() {
                   size={isLg ? 'sm' : 'icon'}
                   className={
                     isLg
-                      ? 'h-7 w-[88px] justify-center rounded-full px-2 text-muted-foreground hover:text-foreground'
-                      : 'h-7 w-7 rounded-full text-muted-foreground hover:text-foreground'
+                      ? 'h-7 w-[88px] justify-center px-2 text-muted-foreground hover:text-foreground'
+                      : 'h-7 w-7 text-muted-foreground hover:text-foreground'
                   }
                 >
                   <activeUsageEntry.Icon

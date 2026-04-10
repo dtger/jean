@@ -116,10 +116,7 @@ pub fn kill_all_terminals() -> usize {
 /// Much cheaper than spawning one `ps` per PID when walking ancestry.
 #[cfg(unix)]
 fn build_ppid_map() -> HashMap<u32, u32> {
-    let output = match silent_command("ps")
-        .args(["-eo", "pid=,ppid="])
-        .output()
-    {
+    let output = match silent_command("ps").args(["-eo", "pid=,ppid="]).output() {
         Ok(o) => o,
         Err(_) => return HashMap::new(),
     };
