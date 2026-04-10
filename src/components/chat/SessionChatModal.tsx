@@ -1213,7 +1213,7 @@ export function SessionChatModal({
                                   handleRenameKeyDown(e, session.id)
                                 }
                                 onClick={e => e.stopPropagation()}
-                                className="w-full min-w-0 bg-transparent text-xs outline-none"
+                                className="w-full min-w-0 bg-transparent text-base outline-none md:text-xs"
                               />
                             ) : (
                               <Tooltip>

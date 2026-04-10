@@ -76,7 +76,7 @@ export function GitHubIssuesTab({
               placeholder='Search by #number, title, label… or label:"bug"'
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="pl-9 h-8 text-sm"
+              className="pl-9 h-8 text-base md:text-sm"
             />
           </div>
           <Tooltip>

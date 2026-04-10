@@ -281,7 +281,7 @@ export function GeneralPane({
             <Input
               value={displayedName}
               onChange={e => setLocalName(e.target.value)}
-              className="flex-1 text-sm"
+              className="flex-1 text-base md:text-sm"
             />
             <Button
               size="sm"
@@ -490,7 +490,7 @@ export function GeneralPane({
               placeholder="~/jean (default)"
               value={displayedWorktreesDir}
               onChange={e => setLocalWorktreesDir(e.target.value)}
-              className="flex-1 text-sm"
+              className="flex-1 text-base md:text-sm"
             />
             <Button
               variant="outline"
@@ -538,7 +538,7 @@ export function GeneralPane({
               placeholder="lin_api_..."
               value={displayedLinearApiKey}
               onChange={e => setLocalLinearApiKey(e.target.value)}
-              className="flex-1 text-sm font-mono"
+              className="flex-1 text-base md:text-sm font-mono"
             />
             <Button
               variant="outline"
@@ -625,7 +625,7 @@ export function GeneralPane({
             value={displayedSystemPrompt}
             onChange={e => setLocalSystemPrompt(e.target.value)}
             rows={4}
-            className="resize-y text-sm"
+            className="resize-y text-base md:text-sm"
           />
           <Button
             size="sm"

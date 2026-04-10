@@ -277,7 +277,7 @@ export function PlanDialog({
           <Textarea
             value={editedContent}
             onChange={e => setEditedContent(e.target.value)}
-            className="flex-1 min-h-0 resize-none font-mono text-sm"
+            className="flex-1 min-h-0 resize-none font-mono text-base md:text-sm"
             placeholder="Loading plan..."
           />
         ) : (

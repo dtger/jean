@@ -376,7 +376,7 @@ export function ReleaseNotesDialog() {
               <Input
                 value={generatedTitle}
                 onChange={e => setGeneratedTitle(e.target.value)}
-                className="text-sm"
+                className="text-base md:text-sm"
               />
             </div>
 
@@ -387,7 +387,7 @@ export function ReleaseNotesDialog() {
               <Textarea
                 value={generatedBody}
                 onChange={e => setGeneratedBody(e.target.value)}
-                className="flex-1 min-h-0 text-sm resize-none font-mono"
+                className="flex-1 min-h-0 text-base resize-none font-mono md:text-sm"
               />
             </div>
 

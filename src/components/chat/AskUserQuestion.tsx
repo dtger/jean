@@ -75,7 +75,10 @@ export function AskUserQuestion({
     // Try JSON parse first (our custom format stored at answer time)
     try {
       const parsed = JSON.parse(toolOutput)
-      if (Array.isArray(parsed) && parsed.every(a => 'questionIndex' in a && 'selectedOptions' in a)) {
+      if (
+        Array.isArray(parsed) &&
+        parsed.every(a => 'questionIndex' in a && 'selectedOptions' in a)
+      ) {
         return parsed as QuestionAnswer[]
       }
     } catch {
@@ -414,7 +417,9 @@ export function AskUserQuestion({
                       <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-green-600 dark:text-green-400">
                         Custom Answer
                       </div>
-                      <div className="italic">&ldquo;{answer.customText}&rdquo;</div>
+                      <div className="italic">
+                        &ldquo;{answer.customText}&rdquo;
+                      </div>
                     </div>
                   ) : !answer ? (
                     <div className="pt-1 text-sm text-muted-foreground italic">
@@ -429,7 +434,7 @@ export function AskUserQuestion({
                       value={answers.get(qIndex)?.customText ?? ''}
                       onChange={e => updateCustomText(qIndex, e.target.value)}
                       disabled={readOnly}
-                      className="cursor-text font-mono text-sm select-text bg-white dark:bg-input"
+                      className="cursor-text font-mono text-base select-text bg-white dark:bg-input md:text-sm"
                     />
                   </div>
                 ) : null}

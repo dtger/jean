@@ -250,7 +250,7 @@ const CliProfilesEditor: React.FC<{
               setEditJson(e.target.value)
               setJsonError(null)
             }}
-            className="min-h-[120px] font-mono text-xs"
+            className="min-h-[120px] font-mono text-base md:text-xs"
           />
           <div className="flex items-center gap-2">
             <Switch

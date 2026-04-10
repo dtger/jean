@@ -922,7 +922,7 @@ export function ContextItem({
             onChange={e => setEditValue(e.target.value)}
             onBlur={onRenameSubmit}
             onKeyDown={onRenameKeyDown}
-            className="w-full text-sm font-medium bg-transparent border-b border-primary outline-none"
+            className="w-full text-base font-medium bg-transparent border-b border-primary outline-none md:text-sm"
           />
           <div className="flex items-center gap-2 mt-0.5">
             <span className="text-xs text-muted-foreground truncate">

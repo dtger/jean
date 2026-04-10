@@ -80,10 +80,12 @@ export function CodexMcpElicitationRequest({
           <Textarea
             value={rawContent}
             onChange={e => setRawContent(e.target.value)}
-            className="min-h-32 font-mono text-xs"
+            className="min-h-32 font-mono text-base md:text-xs"
           />
           {parsedContent.error && (
-            <div className="text-xs text-destructive">{parsedContent.error}</div>
+            <div className="text-xs text-destructive">
+              {parsedContent.error}
+            </div>
           )}
         </div>
       )}

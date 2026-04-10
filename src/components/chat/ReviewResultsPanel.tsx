@@ -554,7 +554,7 @@ Please apply all these fixes to the codebase.`
                       <Textarea
                         value={customSuggestion}
                         onChange={e => setCustomSuggestion(e.target.value)}
-                        className="font-mono min-h-[80px] text-xs"
+                        className="font-mono min-h-[80px] text-base md:text-xs"
                         placeholder="Custom fix instructions (optional)..."
                       />
                       <div className="flex items-center gap-2 mt-3">

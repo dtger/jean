@@ -144,7 +144,7 @@ export function FolderTreeItem({
               onChange={e => setEditName(e.target.value)}
               onBlur={() => handleSubmitRename(true)}
               onKeyDown={handleKeyDown}
-              className="flex-1 bg-transparent text-sm outline-none ring-1 ring-primary/50 rounded px-1"
+              className="flex-1 bg-transparent text-base outline-none ring-1 ring-primary/50 rounded px-1 md:text-sm"
               onClick={e => e.stopPropagation()}
               autoFocus
             />

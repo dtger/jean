@@ -1047,7 +1047,7 @@ export const MagicPromptsPane: React.FC = () => {
             value={localValue}
             onChange={e => handleChange(e.target.value)}
             onBlur={handleBlur}
-            className="flex-1 min-h-0 h-full font-mono text-xs resize-none"
+            className="flex-1 min-h-0 h-full font-mono text-base resize-none md:text-xs"
             placeholder={selectedConfig.defaultValue}
           />
         </div>

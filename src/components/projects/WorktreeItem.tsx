@@ -80,7 +80,6 @@ export function WorktreeItem({
   const isSelected = selectedWorktreeId === worktree.id
   const isBase = isBaseSession(worktree)
 
-
   // Get git status for this worktree from event-driven cache
   // Note: useGitStatus reads from TanStack Query cache, no network requests
   // Data is populated via git:status-update events from the backend
@@ -557,7 +556,7 @@ export function WorktreeItem({
               onKeyDown={handleKeyDown}
               onBlur={handleBlur}
               onClick={e => e.stopPropagation()}
-              className="flex-1 bg-transparent text-sm outline-none ring-1 ring-ring rounded px-1"
+              className="flex-1 bg-transparent text-base outline-none ring-1 ring-ring rounded px-1 md:text-sm"
             />
           ) : (
             <span

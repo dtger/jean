@@ -1019,7 +1019,7 @@ export function MobileToolbarMenu({
                 value={modelSearchQuery}
                 onChange={event => setModelSearchQuery(event.target.value)}
                 placeholder="Search models..."
-                className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none ring-0 focus:border-ring focus:ring-1 focus:ring-ring"
+                className="h-9 w-full rounded-md border border-border bg-background px-3 text-base outline-none ring-0 focus:border-ring focus:ring-1 focus:ring-ring md:text-sm"
                 autoFocus
               />
             </div>

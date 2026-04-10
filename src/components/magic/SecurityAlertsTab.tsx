@@ -215,7 +215,7 @@ export function SecurityAlertsTab({
               placeholder="Search by #number, package, CVE, GHSA ID..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="pl-9 h-8 text-sm"
+              className="pl-9 h-8 text-base md:text-sm"
             />
           </div>
           <Tooltip>

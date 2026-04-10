@@ -440,7 +440,7 @@ export const WebAccessPane: React.FC = () => {
             <div className="flex flex-col gap-2">
               <Input
                 type="text"
-                className="w-64 font-mono text-xs"
+                className="w-64 font-mono text-base md:text-xs"
                 value={bindHostInput}
                 onChange={e => setBindHostInput(e.target.value)}
                 onBlur={() => void handleBindHostBlur()}
@@ -501,7 +501,7 @@ export const WebAccessPane: React.FC = () => {
               <div className="flex items-center gap-2">
                 <Input
                   type={tokenVisible ? 'text' : 'password'}
-                  className="w-64 font-mono text-xs"
+                  className="w-64 font-mono text-base md:text-xs"
                   value={
                     serverStatus?.token ?? preferences?.http_server_token ?? ''
                   }
@@ -542,7 +542,7 @@ export const WebAccessPane: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <Input
                       type="text"
-                      className="w-64 font-mono text-xs"
+                      className="w-64 font-mono text-base md:text-xs"
                       value={`http://localhost:${serverStatus.port}`}
                       readOnly
                     />
@@ -588,7 +588,7 @@ export const WebAccessPane: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <Input
                       type="text"
-                      className="w-64 font-mono text-xs"
+                      className="w-64 font-mono text-base md:text-xs"
                       value={boundUrl}
                       readOnly
                     />

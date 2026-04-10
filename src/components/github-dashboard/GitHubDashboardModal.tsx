@@ -1005,7 +1005,7 @@ export function GitHubDashboardModal() {
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 placeholder="Search..."
-                className="pl-8 !h-7 py-0 text-xs"
+                className="pl-8 !h-7 py-0 text-base md:text-xs"
               />
             </div>
           </div>

@@ -117,7 +117,7 @@ export const SessionListRow = forwardRef<HTMLDivElement, SessionCardProps>(
                 onKeyDown={handleRenameKeyDown}
                 onClick={e => e.stopPropagation()}
                 onDoubleClick={e => e.stopPropagation()}
-                className="flex-1 min-w-0 bg-transparent text-sm outline-none ring-1 ring-ring rounded px-1"
+                className="flex-1 min-w-0 bg-transparent text-base outline-none ring-1 ring-ring rounded px-1 md:text-sm"
               />
             ) : (
               <span className="flex-1 truncate text-sm">

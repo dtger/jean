@@ -194,7 +194,7 @@ export function DesktopBackendModelPicker({
                 }
               }}
               placeholder="Search backends and models..."
-              className="h-9 text-sm"
+              className="h-9 text-base md:text-sm"
             />
           </div>
           <CommandList className="max-h-[24rem]">

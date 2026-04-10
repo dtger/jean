@@ -401,13 +401,13 @@ export function FloatingDock() {
     sessionChatModalOpen &&
     modalTerminalOpen &&
     modalTerminalDockMode === 'bottom'
-      ? modalTerminalHeight + 16
-      : 16
+      ? `calc(${modalTerminalHeight + 8}px + var(--safe-area-bottom))`
+      : 'calc(8px + var(--safe-area-bottom))'
 
   return (
     <div
-      className="absolute right-4 z-10 flex flex-row items-center gap-0.5 rounded-lg border border-border bg-muted/50 backdrop-blur-md px-1 py-0.5 transition-[bottom] duration-200 sm:left-4 sm:right-auto sm:flex-col  sm:px-0.5 sm:py-1 xl:flex-row  xl:px-1 xl:py-0.5"
-      style={{ bottom: `${bottomOffset}px` }}
+      className="absolute right-4 z-10 flex flex-row items-center gap-0.5 rounded-lg border border-border bg-muted/50 backdrop-blur-md px-1 py-0.5 transition-[bottom] duration-200 sm:left-4 sm:right-auto sm:flex-col sm:px-0.5 sm:py-1 xl:flex-row xl:px-1 xl:py-0.5"
+      style={{ bottom: bottomOffset }}
     >
       <DropdownMenu open={menuOpen} onOpenChange={handleQuickMenuOpenChange}>
         <Tooltip>

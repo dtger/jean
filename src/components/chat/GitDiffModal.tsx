@@ -160,7 +160,7 @@ const CommentInputBar = memo(function CommentInputBar({
         onChange={e => setInputValue(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder="What should I do with this code?"
-        className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+        className="flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground md:text-sm"
       />
       <button
         type="button"
@@ -1133,7 +1133,7 @@ export function GitDiffModal({
                                   setSelectedFileIndex(0)
                                 }}
                                 placeholder="Filter files..."
-                                className="w-full bg-muted text-sm outline-none border border-border pl-7 pr-2 py-2.5 placeholder:text-muted-foreground focus:border-ring"
+                                className="w-full bg-muted text-base outline-none border border-border pl-7 pr-2 py-2.5 placeholder:text-muted-foreground focus:border-ring md:text-sm"
                               />
                             </div>
                           </div>
@@ -1318,7 +1318,7 @@ export function GitDiffModal({
                                     setSelectedFileIndex(0)
                                   }}
                                   placeholder="Filter files..."
-                                  className="w-full bg-muted text-sm outline-none border border-border pl-7 pr-2 py-2.5 placeholder:text-muted-foreground focus:border-ring"
+                                  className="w-full bg-muted text-base outline-none border border-border pl-7 pr-2 py-2.5 placeholder:text-muted-foreground focus:border-ring md:text-sm"
                                 />
                               </div>
                             </div>

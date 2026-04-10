@@ -141,7 +141,7 @@ export function LinkedProjectsModal({
               placeholder="Search projects..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full rounded-md border border-input bg-background pl-8 pr-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="w-full rounded-md border border-input bg-background pl-8 pr-3 py-2 text-base placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring md:text-sm"
             />
           </div>
           <ScrollArea className="max-h-48">

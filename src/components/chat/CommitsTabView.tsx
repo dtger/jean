@@ -525,7 +525,7 @@ export function CommitsTabView({
                           setSelectedFileIndex(0)
                         }}
                         placeholder="Filter files..."
-                        className="w-full bg-muted text-sm outline-none border border-border pl-7 pr-2 py-2.5 placeholder:text-muted-foreground focus:border-ring"
+                        className="w-full bg-muted text-base outline-none border border-border pl-7 pr-2 py-2.5 placeholder:text-muted-foreground focus:border-ring md:text-sm"
                       />
                     </div>
                   </div>

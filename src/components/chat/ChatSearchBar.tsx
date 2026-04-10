@@ -108,7 +108,9 @@ export function ChatSearchBar({ scrollContainerRef }: ChatSearchBarProps) {
       if (found.length === 0) return
 
       if (supportsHighlightAPI) {
-        const allRanges = found.map(rangeFromMatch).filter((r): r is Range => r !== null)
+        const allRanges = found
+          .map(rangeFromMatch)
+          .filter((r): r is Range => r !== null)
         if (allRanges.length > 0) {
           CSS.highlights.set('chat-search', new Highlight(...allRanges))
         }
@@ -228,10 +230,13 @@ export function ChatSearchBar({ scrollContainerRef }: ChatSearchBarProps) {
         onChange={e => setQuery(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder="Find in chat..."
-        className="w-40 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+        className="w-40 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground md:text-xs"
       />
       {query && (
-        <span className="text-xs text-muted-foreground whitespace-nowrap" aria-live="polite">
+        <span
+          className="text-xs text-muted-foreground whitespace-nowrap"
+          aria-live="polite"
+        >
           {matches.length > 0 ? `${activeIndex + 1}/${matches.length}` : '0/0'}
         </span>
       )}
