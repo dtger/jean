@@ -589,6 +589,7 @@ pub fn execute_codex_via_server(
     app: &tauri::AppHandle,
     session_id: &str,
     worktree_id: &str,
+    run_id: &str,
     output_file: &std::path::Path,
     working_dir: &std::path::Path,
     existing_thread_id: Option<&str>,
@@ -694,6 +695,13 @@ pub fn execute_codex_via_server(
             })
             .unwrap_or_default();
 
+    // Persist codex_thread_id on the RunEntry so crash recovery can find it
+    if let Ok(mut writer) = super::run_log::RunLogWriter::resume(app, session_id, run_id) {
+        if let Err(e) = writer.set_codex_ids(&thread_id, None) {
+            log::warn!("Failed to persist codex_thread_id on run: {e}");
+        }
+    }
+
     // Build turn params
     let turn_params = build_turn_start_params(
         &thread_id,
@@ -732,6 +740,7 @@ pub fn execute_codex_via_server(
         app,
         session_id,
         worktree_id,
+        run_id,
         &thread_id,
         output_file,
         is_plan_mode,
@@ -744,6 +753,13 @@ pub fn execute_codex_via_server(
     codex_server::unregister_session(&thread_id);
     super::registry::unregister_codex_turn(session_id);
 
+    // Clear turn_id from RunEntry (turn completed)
+    if let Ok(mut writer) = super::run_log::RunLogWriter::resume(app, session_id, run_id) {
+        if let Err(e) = writer.clear_codex_turn_id() {
+            log::warn!("Failed to clear codex_turn_id after turn complete: {e}");
+        }
+    }
+
     // Set the thread_id on the response
     let mut resp = response;
     if resp.thread_id.is_empty() {
@@ -751,6 +767,157 @@ pub fn execute_codex_via_server(
     }
 
     Ok(resp)
+}
+
+/// Resume a Codex session after Jean crashed.
+///
+/// Spawns a new app-server (if needed), calls `thread/resume` to reconnect
+/// to the persisted thread, then checks whether a turn was in-flight.
+///
+/// Returns `Ok(true)` if the run was successfully recovered (either by
+/// re-entering the event loop for an active turn or by marking a completed
+/// turn). Returns `Ok(false)` if the thread is gone/expired and the run
+/// should be marked as Crashed.
+pub fn resume_codex_after_crash(
+    app: &tauri::AppHandle,
+    session_id: &str,
+    worktree_id: &str,
+    run_id: &str,
+    thread_id: &str,
+    had_active_turn: bool,
+) -> Result<bool, String> {
+    use super::codex_server;
+    use super::run_log::RunLogWriter;
+    use super::storage::get_session_dir;
+
+    log::info!(
+        "Codex crash recovery: session={session_id}, thread={thread_id}, had_active_turn={had_active_turn}"
+    );
+
+    // 1. Ensure the app-server is running
+    codex_server::ensure_running(app)?;
+
+    // 2. Call thread/resume to reconnect to the persisted thread
+    let resume_params = serde_json::json!({
+        "threadId": thread_id,
+        "persistExtendedHistory": true,
+    });
+
+    let resume_result = codex_server::send_request("thread/resume", resume_params);
+
+    match resume_result {
+        Err(e) => {
+            // Thread gone/expired — cannot recover
+            log::warn!("Codex crash recovery: thread/resume failed for {thread_id}: {e}");
+            codex_server::decrement_usage_count();
+            return Ok(false);
+        }
+        Ok(response) => {
+            log::trace!("Codex crash recovery: thread/resume succeeded for {thread_id}");
+
+            // Check thread status from response
+            let thread_status = response
+                .get("thread")
+                .and_then(|t| t.get("status"))
+                .and_then(|s| s.as_str())
+                .unwrap_or("unknown");
+
+            if had_active_turn && thread_status != "completed" {
+                // Turn was in-flight when Jean crashed and thread is still active.
+                // Register for events and enter the event loop to stream remaining output.
+                let session_dir = get_session_dir(app, session_id)?;
+                let output_file = session_dir.join(format!("{run_id}.jsonl"));
+
+                let (event_tx, event_rx) = std::sync::mpsc::channel();
+                let ctx = codex_server::SessionContext {
+                    session_id: session_id.to_string(),
+                    worktree_id: worktree_id.to_string(),
+                    event_tx,
+                };
+                codex_server::register_session(thread_id, ctx);
+                super::registry::register_codex_turn(
+                    session_id.to_string(),
+                    thread_id.to_string(),
+                    String::new(),
+                );
+
+                // Determine execution mode from run metadata (single load)
+                let exec_mode = super::storage::load_metadata(app, session_id)?.and_then(|m| {
+                    m.runs
+                        .iter()
+                        .find(|r| r.run_id == run_id)
+                        .and_then(|r| r.execution_mode.clone())
+                });
+                let is_plan_mode = exec_mode.as_deref() == Some("plan");
+                let is_build_mode = exec_mode.as_deref() == Some("build");
+
+                super::increment_tailer_count();
+                let response = process_turn_events(
+                    app,
+                    session_id,
+                    worktree_id,
+                    run_id,
+                    thread_id,
+                    &output_file,
+                    is_plan_mode,
+                    is_build_mode,
+                    &event_rx,
+                );
+                super::decrement_tailer_count();
+
+                codex_server::unregister_session(thread_id);
+                super::registry::unregister_codex_turn(session_id);
+
+                // Clear turn_id from RunEntry
+                if let Ok(mut writer) = RunLogWriter::resume(app, session_id, run_id) {
+                    if let Err(e) = writer.clear_codex_turn_id() {
+                        log::warn!("Failed to clear codex_turn_id after crash recovery: {e}");
+                    }
+                }
+
+                // Complete the run
+                if let Ok(mut writer) = RunLogWriter::resume(app, session_id, run_id) {
+                    let assistant_message_id = uuid::Uuid::new_v4().to_string();
+                    if let Err(e) = writer.complete(&assistant_message_id, None, response.usage) {
+                        log::error!("Failed to complete run after crash recovery: {e}");
+                    }
+                }
+
+                return Ok(true);
+            }
+
+            // Thread is idle — turn completed while Jean was down, or no turn was active.
+            // The JSONL file may already have the result from before the crash.
+            // Mark the run as completed (the JSONL output is the source of truth).
+            codex_server::decrement_usage_count();
+
+            // Check if the JSONL file has a result line (turn completed before crash)
+            let has_result = super::run_log::jsonl_has_result_line(app, session_id, run_id);
+
+            if has_result {
+                log::trace!("Codex crash recovery: run {run_id} already has result in JSONL");
+                // Run completed before the crash — mark as completed
+                if let Ok(mut writer) = RunLogWriter::resume(app, session_id, run_id) {
+                    let assistant_message_id = uuid::Uuid::new_v4().to_string();
+                    if let Err(e) = writer.complete(&assistant_message_id, None, None) {
+                        log::error!("Failed to complete run during crash recovery: {e}");
+                    }
+                }
+                return Ok(true);
+            }
+
+            // No result in JSONL — turn may have completed on the server side
+            // but events weren't written. Mark as completed with empty content.
+            log::trace!("Codex crash recovery: thread idle, marking run {run_id} as completed");
+            if let Ok(mut writer) = RunLogWriter::resume(app, session_id, run_id) {
+                let assistant_message_id = uuid::Uuid::new_v4().to_string();
+                if let Err(e) = writer.complete(&assistant_message_id, None, None) {
+                    log::error!("Failed to complete run during crash recovery: {e}");
+                }
+            }
+            return Ok(true);
+        }
+    }
 }
 
 /// Start a new Codex thread via app-server.
@@ -793,6 +960,7 @@ fn process_turn_events(
     app: &tauri::AppHandle,
     session_id: &str,
     worktree_id: &str,
+    run_id: &str,
     thread_id: &str,
     output_file: &std::path::Path,
     is_plan_mode: bool,
@@ -892,7 +1060,7 @@ fn process_turn_events(
                     is_plan_mode,
                 );
 
-                // Update turn_id for cancellation
+                // Update turn_id for cancellation + crash recovery
                 if method == "turn/started" {
                     if let Some(turn_id) = params
                         .get("turn")
@@ -904,6 +1072,14 @@ fn process_turn_events(
                             thread_id.to_string(),
                             turn_id.to_string(),
                         );
+                        // Persist turn_id so crash recovery knows a turn was in-flight
+                        if let Ok(mut writer) =
+                            super::run_log::RunLogWriter::resume(app, session_id, run_id)
+                        {
+                            if let Err(e) = writer.set_codex_ids(thread_id, Some(turn_id)) {
+                                log::warn!("Failed to persist codex_turn_id on run: {e}");
+                            }
+                        }
                     }
                 }
             }
@@ -3233,6 +3409,8 @@ mod tests {
             claude_session_id: None,
             pid: None,
             usage: None,
+            codex_thread_id: None,
+            codex_turn_id: None,
         };
 
         let message = parse_codex_run_to_message(&lines, &run).expect("message");
@@ -3271,6 +3449,8 @@ mod tests {
             claude_session_id: None,
             pid: None,
             usage: None,
+            codex_thread_id: None,
+            codex_turn_id: None,
         };
 
         let message = parse_codex_run_to_message(&lines, &run).expect("message");
@@ -3321,6 +3501,8 @@ mod tests {
             claude_session_id: None,
             pid: None,
             usage: None,
+            codex_thread_id: None,
+            codex_turn_id: None,
         };
 
         let message = parse_codex_run_to_message(&lines, &run).expect("message");
@@ -3386,6 +3568,8 @@ mod tests {
             claude_session_id: None,
             pid: None,
             usage: None,
+            codex_thread_id: None,
+            codex_turn_id: None,
         };
 
         let message = parse_codex_run_to_message(&lines, &run).expect("message");
@@ -3436,6 +3620,8 @@ mod tests {
             claude_session_id: None,
             pid: None,
             usage: None,
+            codex_thread_id: None,
+            codex_turn_id: None,
         };
 
         let message = parse_codex_run_to_message(&lines, &run).expect("message");
@@ -3491,6 +3677,8 @@ mod tests {
             claude_session_id: None,
             pid: None,
             usage: None,
+            codex_thread_id: None,
+            codex_turn_id: None,
         };
 
         let message = parse_codex_run_to_message(&lines, &run).expect("message");
@@ -3527,6 +3715,8 @@ mod tests {
             claude_session_id: None,
             pid: None,
             usage: None,
+            codex_thread_id: None,
+            codex_turn_id: None,
         };
 
         let message = parse_codex_run_to_message(&lines, &run).expect("message");

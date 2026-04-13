@@ -2,12 +2,30 @@ use axum::extract::ws::{Message, WebSocket};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tokio::sync::{broadcast, mpsc};
 
 use super::dispatch::dispatch_command;
-use super::WsEvent;
+use super::{WsBroadcaster, WsEvent};
 
+/// Typed client message parsed from JSON with `"type"` tag.
+#[derive(Deserialize)]
+#[serde(tag = "type")]
+enum WsClientMessage {
+    /// Standard command invocation: `{ type: "invoke", id, command, args }`.
+    #[serde(rename = "invoke")]
+    Invoke {
+        id: String,
+        command: String,
+        #[serde(default)]
+        args: Value,
+    },
+    /// Request replay of missed events after reconnection.
+    #[serde(rename = "replay")]
+    Replay { session_id: String, last_seq: u64 },
+}
+
+/// Legacy invoke request without `type` field (backwards compat).
 #[derive(Deserialize)]
 struct InvokeRequest {
     id: String,
@@ -61,18 +79,17 @@ pub async fn handle_ws_connection(
             msg = ws_rx.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        match serde_json::from_str::<InvokeRequest>(&text) {
-                            Ok(req) => {
+                        match serde_json::from_str::<WsClientMessage>(&text) {
+                            Ok(WsClientMessage::Invoke { id, command, args }) => {
                                 // Spawn dispatch as a separate task so the
                                 // select loop stays free to drain events.
                                 let app_clone = app.clone();
                                 let tx = resp_tx.clone();
                                 tokio::spawn(async move {
-                                    let id = req.id.clone();
                                     let resp = match dispatch_command(
                                         &app_clone,
-                                        &req.command,
-                                        req.args,
+                                        &command,
+                                        args,
                                     )
                                     .await
                                     {
@@ -94,16 +111,62 @@ pub async fn handle_ws_connection(
                                     }
                                 });
                             }
+                            Ok(WsClientMessage::Replay { session_id, last_seq }) => {
+                                // Replay missed events for this session
+                                if let Some(broadcaster) = app.try_state::<WsBroadcaster>() {
+                                    let events = broadcaster.replay_events(&session_id, last_seq);
+                                    for (_seq, json) in events {
+                                        if ws_tx.send(Message::Text(json.to_string().into())).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
                             Err(e) => {
-                                let resp = InvokeResponse {
-                                    msg_type: "error".to_string(),
-                                    id: "unknown".to_string(),
-                                    data: None,
-                                    error: Some(format!("Invalid request: {e}")),
-                                };
-                                if let Ok(json) = serde_json::to_string(&resp) {
-                                    if ws_tx.send(Message::Text(json.into())).await.is_err() {
-                                        break;
+                                // Try legacy format (no "type" field — old clients send bare invoke)
+                                match serde_json::from_str::<InvokeRequest>(&text) {
+                                    Ok(req) => {
+                                        let app_clone = app.clone();
+                                        let tx = resp_tx.clone();
+                                        tokio::spawn(async move {
+                                            let id = req.id.clone();
+                                            let resp = match dispatch_command(
+                                                &app_clone,
+                                                &req.command,
+                                                req.args,
+                                            )
+                                            .await
+                                            {
+                                                Ok(data) => InvokeResponse {
+                                                    msg_type: "response".to_string(),
+                                                    id,
+                                                    data: Some(data),
+                                                    error: None,
+                                                },
+                                                Err(err) => InvokeResponse {
+                                                    msg_type: "error".to_string(),
+                                                    id,
+                                                    data: None,
+                                                    error: Some(err),
+                                                },
+                                            };
+                                            if let Ok(json) = serde_json::to_string(&resp) {
+                                                let _ = tx.send(json);
+                                            }
+                                        });
+                                    }
+                                    Err(_) => {
+                                        let resp = InvokeResponse {
+                                            msg_type: "error".to_string(),
+                                            id: "unknown".to_string(),
+                                            data: None,
+                                            error: Some(format!("Invalid request: {e}")),
+                                        };
+                                        if let Ok(json) = serde_json::to_string(&resp) {
+                                            if ws_tx.send(Message::Text(json.into())).await.is_err() {
+                                                break;
+                                            }
+                                        }
                                     }
                                 }
                             }

@@ -692,6 +692,7 @@ pub fn load_sessions(
                 digest: None,
                 last_run_status: None,
                 last_run_execution_mode: None,
+                last_run_started_at: None,
                 label: None,
                 queued_messages: vec![],
             }
@@ -780,6 +781,7 @@ where
                 digest: None,
                 last_run_status: None,
                 last_run_execution_mode: None,
+                last_run_started_at: None,
                 label: None,
                 queued_messages: vec![],
             }

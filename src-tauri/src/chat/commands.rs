@@ -1574,6 +1574,17 @@ pub async fn send_chat_message(
         })?;
     }
 
+    // Clear stale completion flags from previous turn — prevents approve
+    // buttons from appearing on WS reconnect during this turn.
+    with_sessions_mut(&app, &worktree_path, &worktree_id, |sessions| {
+        if let Some(session) = sessions.find_session_mut(&session_id) {
+            session.waiting_for_input = false;
+            session.is_reviewing = false;
+            session.waiting_for_input_type = None;
+        }
+        Ok(())
+    })?;
+
     // Build context for Claude
     let context = ClaudeContext::new(worktree_path.clone());
 
@@ -1687,6 +1698,7 @@ pub async fn send_chat_message(
     let thread_working_dir = context.worktree_path.clone();
     let thread_claude_session_id = claude_session_id.clone();
     let thread_codex_thread_id = codex_thread_id.clone();
+    let thread_run_id = run_id.clone();
     let thread_opencode_session_id = opencode_session_id.clone();
     let thread_model = model.clone();
     let thread_execution_mode = execution_mode.clone();
@@ -2159,6 +2171,7 @@ pub async fn send_chat_message(
                     &thread_app,
                     &thread_session_id,
                     &thread_worktree_id,
+                    &thread_run_id,
                     &thread_output_file,
                     std::path::Path::new(&thread_working_dir),
                     thread_codex_thread_id.as_deref(),
@@ -4823,11 +4836,13 @@ pub async fn resume_session(
         }
     };
 
-    // Find resumable runs
+    // Find resumable runs — include both PID-based (Claude) and Codex (thread_id-based)
     let resumable_runs: Vec<_> = metadata
         .runs
         .iter()
-        .filter(|r| r.status == RunStatus::Resumable && r.pid.is_some())
+        .filter(|r| {
+            r.status == RunStatus::Resumable && (r.pid.is_some() || r.codex_thread_id.is_some())
+        })
         .cloned()
         .collect();
 
@@ -4851,7 +4866,95 @@ pub async fn resume_session(
     // Process each resumable run
     for run in resumable_runs {
         let run_id = run.run_id.clone();
-        let pid = run.pid.unwrap(); // Safe because we filtered for Some above
+
+        // === Codex crash recovery path ===
+        if let Some(ref codex_tid) = run.codex_thread_id {
+            let had_active_turn = run.codex_turn_id.is_some();
+            log::trace!(
+                "Resuming Codex run: {run_id}, thread={codex_tid}, had_active_turn={had_active_turn}"
+            );
+
+            // Mark the run as Running again
+            if let Some(metadata_run) = metadata.find_run_mut(&run_id) {
+                metadata_run.status = RunStatus::Running;
+            }
+            save_metadata(&app, &metadata)?;
+
+            let app_clone = app.clone();
+            let session_id_clone = session_id.clone();
+            let worktree_id_clone = worktree_id.clone();
+            let run_id_clone = run_id.clone();
+            let thread_id_clone = codex_tid.clone();
+
+            // Use std::thread::spawn (NOT tauri::async_runtime::spawn) because
+            // resume_codex_after_crash blocks on sync mpsc — blocking a tokio
+            // worker would starve the async runtime.
+            std::thread::spawn(move || {
+                let emit_done = |app: &tauri::AppHandle, sid: &str, wid: &str| {
+                    let _ = app.emit_all(
+                        "chat:done",
+                        &serde_json::json!({ "session_id": sid, "worktree_id": wid, "waiting_for_plan": false }),
+                    );
+                };
+
+                match super::codex::resume_codex_after_crash(
+                    &app_clone,
+                    &session_id_clone,
+                    &worktree_id_clone,
+                    &run_id_clone,
+                    &thread_id_clone,
+                    had_active_turn,
+                ) {
+                    Ok(true) => {
+                        log::info!(
+                            "Codex crash recovery succeeded for session {session_id_clone}, run {run_id_clone}"
+                        );
+                        // process_turn_events (if active turn) or
+                        // resume_codex_after_crash (if idle) already emitted
+                        // chat:done, so only emit here for non-active-turn
+                        // paths where the function handled completion internally.
+                        if !had_active_turn {
+                            emit_done(&app_clone, &session_id_clone, &worktree_id_clone);
+                        }
+                        // For active turns, process_turn_events emits chat:done.
+                    }
+                    Ok(false) => {
+                        // Thread expired — mark as crashed
+                        log::warn!(
+                            "Codex crash recovery: thread expired for session {session_id_clone}, marking crashed"
+                        );
+                        if let Ok(mut writer) =
+                            RunLogWriter::resume(&app_clone, &session_id_clone, &run_id_clone)
+                        {
+                            if let Err(e) = writer.crash() {
+                                log::error!("Failed to mark run as crashed: {e}");
+                            }
+                        }
+                        emit_done(&app_clone, &session_id_clone, &worktree_id_clone);
+                    }
+                    Err(e) => {
+                        log::error!(
+                            "Codex crash recovery failed for session {session_id_clone}: {e}"
+                        );
+                        if let Ok(mut writer) =
+                            RunLogWriter::resume(&app_clone, &session_id_clone, &run_id_clone)
+                        {
+                            if let Err(e) = writer.crash() {
+                                log::error!("Failed to mark run as crashed: {e}");
+                            }
+                        }
+                        emit_done(&app_clone, &session_id_clone, &worktree_id_clone);
+                    }
+                }
+            });
+            continue;
+        }
+
+        // === Claude PID-based resume path ===
+        let pid = match run.pid {
+            Some(p) => p,
+            None => continue,
+        };
         let output_file = session_dir.join(format!("{run_id}.jsonl"));
 
         log::trace!(
@@ -4880,7 +4983,6 @@ pub async fn resume_session(
         let session_id_clone = session_id.clone();
         let worktree_id_clone = worktree_id.clone();
         let run_id_clone = run_id.clone();
-        let is_codex = metadata.backend == Backend::Codex;
 
         // Spawn a task to tail the output file
         tauri::async_runtime::spawn(async move {
@@ -4894,22 +4996,8 @@ pub async fn resume_session(
                 );
             };
 
-            // Tail the output file — route by backend
-            let (resume_id, usage, cancelled) = if is_codex {
-                // Codex uses app-server now — no detached process to tail.
-                // Mark as crashed; the user's next message will use thread/resume.
-                log::trace!("Codex session {session_id_clone}: no process to tail (app-server mode), marking run complete");
-                super::registry::unregister_process(&session_id_clone);
-                if let Ok(mut writer) =
-                    RunLogWriter::resume(&app_clone, &session_id_clone, &run_id_clone)
-                {
-                    if let Err(e) = writer.crash() {
-                        log::error!("Failed to mark run as crashed: {e}");
-                    }
-                }
-                emit_done(&app_clone, &session_id_clone, &worktree_id_clone);
-                return;
-            } else {
+            // Tail the output file — Claude backend only (Codex handled above)
+            let (resume_id, usage, cancelled) = {
                 match super::claude::tail_claude_output(
                     &app_clone,
                     &session_id_clone,

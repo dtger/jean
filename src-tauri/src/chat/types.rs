@@ -613,6 +613,9 @@ pub struct Session {
     /// Execution mode of the last run (plan/build/yolo)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_run_execution_mode: Option<String>,
+    /// Unix timestamp when the last run started
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_run_started_at: Option<u64>,
     /// User-assigned label with color (e.g. "Needs testing")
     #[serde(
         default,
@@ -681,6 +684,7 @@ impl Session {
             digest: None,
             last_run_status: None,
             last_run_execution_mode: None,
+            last_run_started_at: None,
             label: None,
             queued_messages: vec![],
         }
@@ -875,6 +879,7 @@ impl SessionMetadata {
             // Populate from last run for status recovery on app restart
             last_run_status: last_run.map(|r| r.status.clone()),
             last_run_execution_mode: last_run.and_then(|r| r.execution_mode.clone()),
+            last_run_started_at: last_run.map(|r| r.started_at),
             label: self.label.clone(),
             queued_messages: self.queued_messages.clone(),
         }
@@ -1132,6 +1137,13 @@ pub struct RunEntry {
     /// Token usage for this run (captured from Claude CLI result)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<UsageData>,
+    /// Codex thread ID — persisted per-run so crash recovery can resume via thread/resume
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex_thread_id: Option<String>,
+    /// Codex turn ID — set when a turn is in-flight, cleared on completion.
+    /// Presence indicates a turn was active when Jean crashed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex_turn_id: Option<String>,
 }
 
 /// Session metadata - single source of truth for session data and run history
@@ -1719,6 +1731,8 @@ mod tests {
             claude_session_id: None,
             pid: Some(12345),
             usage: None,
+            codex_thread_id: None,
+            codex_turn_id: None,
         });
 
         assert!(metadata.find_run("run-1").is_some());
@@ -1755,6 +1769,8 @@ mod tests {
             claude_session_id: None,
             pid: None,
             usage: None,
+            codex_thread_id: None,
+            codex_turn_id: None,
         });
 
         assert!(metadata.latest_claude_session_id().is_none());
@@ -1777,6 +1793,8 @@ mod tests {
             claude_session_id: Some("claude-sess-abc".to_string()),
             pid: None,
             usage: None,
+            codex_thread_id: None,
+            codex_turn_id: None,
         });
 
         assert_eq!(metadata.latest_claude_session_id(), Some("claude-sess-abc"));

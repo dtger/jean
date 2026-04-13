@@ -220,6 +220,8 @@ export interface Session {
   last_run_status?: RunStatus
   /** Execution mode of the last run (plan/build/yolo) */
   last_run_execution_mode?: ExecutionMode
+  /** Unix timestamp when the last run started */
+  last_run_started_at?: number
   /** User-assigned label with color (e.g. "Needs testing") */
   label?: LabelData
   /** Messages queued for sending (synced between native + web clients) */
