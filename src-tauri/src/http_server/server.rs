@@ -569,6 +569,35 @@ async fn init_handler(Query(params): Query<WsAuth>, State(state): State<AppState
     let running_sessions = crate::chat::registry::get_running_sessions();
     response["runningSessions"] = serde_json::to_value(&running_sessions).unwrap_or_default();
 
+    if !running_sessions.is_empty() {
+        let mut replay_events: Vec<Value> = state
+            .app
+            .try_state::<WsBroadcaster>()
+            .map(|broadcaster| {
+                let mut events: Vec<Value> = running_sessions
+                    .iter()
+                    .flat_map(|session_id| broadcaster.replay_events(session_id, 0))
+                    .filter_map(|(_, json)| serde_json::from_str::<Value>(&json).ok())
+                    .collect();
+                events.sort_by_key(|event| {
+                    event
+                        .get("seq")
+                        .and_then(|seq| seq.as_u64())
+                        .unwrap_or_default()
+                });
+                events
+            })
+            .unwrap_or_default();
+
+        replay_events.dedup_by(|a, b| {
+            a.get("seq").and_then(|seq| seq.as_u64()) == b.get("seq").and_then(|seq| seq.as_u64())
+        });
+
+        if !replay_events.is_empty() {
+            response["replayEvents"] = Value::Array(replay_events);
+        }
+    }
+
     match ui_state {
         Some(cleaned_ui) => {
             if let Ok(val) = serde_json::to_value(&cleaned_ui) {

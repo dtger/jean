@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import {
+  connectTransport,
+  ingestBootstrapEvents,
   invoke,
   useWsConnectionStatus,
   useWsDataReady,
@@ -109,6 +111,7 @@ function App() {
   // Track preloading state for web view
   const [isPreloading, setIsPreloading] = useState(!isNativeApp())
   const queryClient = useQueryClient()
+  const hasStartedTransportRef = useRef(false)
 
   // Holds the update object so the title bar indicator can trigger install later
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -264,6 +267,15 @@ function App() {
             ...worktreePaths,
           }
         }
+        // Clear stale waiting/reviewing state for sessions actively running a turn.
+        // The server persists these flags from the previous turn's completion;
+        // if a new turn is in-flight they're stale and would show approve buttons.
+        if (data.runningSessions?.length) {
+          for (const sessionId of data.runningSessions) {
+            delete reviewingUpdates[sessionId]
+            delete waitingUpdates[sessionId]
+          }
+        }
         // Replace (not merge) reviewing/waiting state — server is source of truth.
         // Merging would keep stale entries from sessions that changed while disconnected.
         storeUpdates.reviewingSessions = reviewingUpdates
@@ -352,6 +364,7 @@ function App() {
             projects: Array.isArray(data.projects) ? data.projects.length : 0,
           })
           seedCache(data)
+          ingestBootstrapEvents(data.replayEvents ?? [])
           setWsDataReady(true)
         }
       })
@@ -378,6 +391,14 @@ function App() {
   // Global streaming event listeners - must be at App level so they stay active
   // even when ChatWindow is unmounted (e.g., when viewing a different worktree)
   useStreamingEvents({ queryClient })
+
+  // Browser mode: only open WebSocket after preload + listener registration.
+  // This lets us replay buffered server events before live events start arriving.
+  useEffect(() => {
+    if (isNativeApp() || isPreloading || hasStartedTransportRef.current) return
+    hasStartedTransportRef.current = true
+    connectTransport()
+  }, [isPreloading])
 
   // Global queue processor - must be at App level so queued messages execute
   // even when the worktree is not focused (ChatWindow unmounted)
@@ -418,6 +439,7 @@ function App() {
         .then(data => {
           if (data) {
             seedCache(data)
+            ingestBootstrapEvents(data.replayEvents ?? [])
             logger.info('Reconnect: re-seeded cache from HTTP')
             setWsDataReady(true)
             // Invalidate non-preloaded queries after a frame so the seeded

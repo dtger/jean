@@ -235,6 +235,57 @@ impl RunLogWriter {
         })
     }
 
+    /// Set the Codex thread ID and (optionally) turn ID on the run entry.
+    /// Called after thread/start or thread/resume returns the thread ID,
+    /// and again after turn/started returns the turn ID.
+    pub fn set_codex_ids(&mut self, thread_id: &str, turn_id: Option<&str>) -> Result<(), String> {
+        let run_id = self.run_id.clone();
+        let tid = thread_id.to_string();
+        let tuid = turn_id.map(|s| s.to_string());
+
+        with_metadata_mut(
+            &self.app,
+            &self.session_id,
+            &self.worktree_id,
+            &self.session_name,
+            self.order,
+            |metadata| {
+                if let Some(run) = metadata.find_run_mut(&run_id) {
+                    run.codex_thread_id = Some(tid);
+                    run.codex_turn_id = tuid;
+                }
+                Ok(())
+            },
+        )?;
+
+        log::trace!(
+            "Set codex IDs for run {}: thread={thread_id}, turn={turn_id:?}",
+            self.run_id
+        );
+        Ok(())
+    }
+
+    /// Clear the Codex turn ID (turn completed successfully).
+    pub fn clear_codex_turn_id(&mut self) -> Result<(), String> {
+        let run_id = self.run_id.clone();
+
+        with_metadata_mut(
+            &self.app,
+            &self.session_id,
+            &self.worktree_id,
+            &self.session_name,
+            self.order,
+            |metadata| {
+                if let Some(run) = metadata.find_run_mut(&run_id) {
+                    run.codex_turn_id = None;
+                }
+                Ok(())
+            },
+        )?;
+
+        Ok(())
+    }
+
     /// Mark the run as crashed (used when resume fails)
     pub fn crash(&mut self) -> Result<(), String> {
         let now = now_timestamp();
@@ -329,6 +380,8 @@ pub fn start_run(
         claude_session_id: None,
         pid: None,   // Set later via set_pid() after spawning detached process
         usage: None, // Set on completion via complete()
+        codex_thread_id: None,
+        codex_turn_id: None,
     };
 
     with_metadata_mut(
@@ -877,6 +930,8 @@ mod tests {
             claude_session_id: None,
             pid: None,
             usage: None,
+            codex_thread_id: None,
+            codex_turn_id: None,
         }
     }
 
@@ -1216,6 +1271,31 @@ pub fn recover_incomplete_runs(app: &tauri::AppHandle) -> Result<Vec<RecoveredRu
                                 metadata.claude_session_id = Some(sid);
                             }
                         }
+                    } else if run.codex_thread_id.is_some() {
+                        // Codex sessions can be resumed via thread/resume even after
+                        // Jean crashes — threads are persisted to disk by app-server.
+                        // Mark as Resumable so resume_session can recover them.
+                        run.status = RunStatus::Resumable;
+
+                        recovered.push(RecoveredRun {
+                            session_id: session_id.clone(),
+                            worktree_id: metadata.worktree_id.clone(),
+                            run_id: run.run_id.clone(),
+                            user_message: run.user_message.clone(),
+                            resumable: true,
+                            execution_mode: run.execution_mode.clone(),
+                            started_at: run.started_at,
+                        });
+
+                        log::trace!(
+                            "Found resumable Codex run: {} in session {} (thread_id: {:?})",
+                            run.run_id,
+                            session_id,
+                            run.codex_thread_id
+                        );
+
+                        modified = true;
+                        continue;
                     } else {
                         run.status = RunStatus::Crashed;
                     }

@@ -198,10 +198,9 @@ pub fn is_process_running(session_id: &str) -> bool {
 
 /// Get all session IDs that currently have running processes
 pub fn get_running_sessions() -> Vec<String> {
-    lock_recover(&PROCESS_REGISTRY, "PROCESS_REGISTRY")
-        .keys()
-        .cloned()
-        .collect()
+    let mut sessions: Vec<String> = get_actively_managed_sessions().into_iter().collect();
+    sessions.sort();
+    sessions
 }
 
 /// Get all session IDs that are actively managed (running process, cancel flag, or codex turn).
@@ -226,6 +225,46 @@ pub fn is_session_actively_managed(session_id: &str) -> bool {
     lock_recover(&PROCESS_REGISTRY, "PROCESS_REGISTRY").contains_key(session_id)
         || lock_recover(&CANCEL_FLAGS, "CANCEL_FLAGS").contains_key(session_id)
         || lock_recover(&CODEX_TURN_REGISTRY, "CODEX_TURN_REGISTRY").contains_key(session_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn clear_registries() {
+        lock_recover(&PROCESS_REGISTRY, "PROCESS_REGISTRY").clear();
+        lock_recover(&PENDING_CANCELS, "PENDING_CANCELS").clear();
+        lock_recover(&CANCEL_FLAGS, "CANCEL_FLAGS").clear();
+        lock_recover(&CODEX_TURN_REGISTRY, "CODEX_TURN_REGISTRY").clear();
+    }
+
+    #[test]
+    fn get_running_sessions_includes_all_backend_registries() {
+        clear_registries();
+
+        assert!(register_process("claude-session".to_string(), 4242));
+        assert!(register_cancel_flag(
+            "opencode-session".to_string(),
+            Arc::new(AtomicBool::new(false))
+        ));
+        assert!(register_codex_turn(
+            "codex-session".to_string(),
+            "thread-1".to_string(),
+            "turn-1".to_string()
+        ));
+
+        let running = get_running_sessions();
+        assert_eq!(
+            running,
+            vec![
+                "claude-session".to_string(),
+                "codex-session".to_string(),
+                "opencode-session".to_string()
+            ]
+        );
+
+        clear_registries();
+    }
 }
 
 /// Cancel a running Claude process for a session by sending SIGKILL to the process group
