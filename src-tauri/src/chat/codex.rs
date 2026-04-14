@@ -1345,7 +1345,7 @@ fn process_server_notification(
     received_completed_agent_message: &mut bool,
     is_plan_mode: bool,
 ) {
-    log::debug!("[codex-notify] {method} for session {session_id}");
+    log::trace!("[codex-server] Notification: {method} for session {session_id}");
 
     match method {
         "thread/started" => {
@@ -2007,13 +2007,11 @@ fn process_codex_event(
     usage: &mut Option<UsageData>,
     error_emitted: &mut bool,
 ) {
-    log::debug!("[codex-event] {event_type} for session {session_id}");
-
     match event_type {
         "thread.started" => {
             if let Some(tid) = msg.get("thread_id").and_then(|v| v.as_str()) {
                 *thread_id = tid.to_string();
-                log::debug!("[codex-event] thread started: {tid}");
+                log::trace!("Codex thread started: {tid}");
             }
         }
         "item.started" => {

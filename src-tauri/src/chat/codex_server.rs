@@ -614,11 +614,11 @@ fn route_notification(
                 .event_tx
                 .send(ServerEvent::Notification { method, params });
         } else {
-            log::debug!("[codex-route] No active session for thread {tid}, notification: {method}");
+            log::trace!("No active session for thread {tid}, notification: {method}");
         }
     } else {
         // Broadcast to all sessions (global notifications)
-        log::debug!("[codex-route] Broadcasting {method} (no threadId)");
+        log::trace!("Broadcasting notification without threadId: {method}");
         let sessions = active_sessions.lock().unwrap();
         for (_tid, ctx) in sessions.iter() {
             let _ = ctx.event_tx.send(ServerEvent::Notification {
