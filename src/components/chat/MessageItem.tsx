@@ -1,5 +1,5 @@
 import { memo, useCallback } from 'react'
-import { Copy } from 'lucide-react'
+import { Copy, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { normalizePath } from '@/lib/path-utils'
 import { Markdown } from '@/components/ui/markdown'
@@ -51,6 +51,7 @@ import {
   stripAllMarkers,
 } from './message-content-utils'
 import { hasQuestionAnswerOutput } from '@/types/chat'
+import { MODEL_OPTIONS } from '@/components/chat/toolbar/toolbar-options'
 
 interface MessageItemProps {
   /** The message to render */
@@ -721,6 +722,19 @@ export const MessageItem = memo(function MessageItem({
           )}
           <div className="text-foreground border border-border rounded-lg px-3 py-2 bg-muted/20 min-w-0 break-words">
             {messageBoxContent}
+            {message.model && (
+              <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground/50">
+                <Sparkles className="h-2 w-2" />
+                {MODEL_OPTIONS.find(o => o.value === message.model)?.label ??
+                  message.model}
+                {message.execution_mode &&
+                  message.execution_mode !== 'plan' && (
+                    <span className="capitalize">
+                      · {message.execution_mode}
+                    </span>
+                  )}
+              </div>
+            )}
           </div>
         </div>
       ) : (
