@@ -17,7 +17,13 @@ export type OnboardingStartStep = 'claude' | 'gh' | null
 
 export type CliUpdateModalType = 'claude' | 'gh' | 'codex' | 'opencode' | null
 
-export type CliLoginModalType = 'claude' | 'gh' | 'codex' | 'opencode' | null
+export type CliLoginModalType =
+  | 'claude'
+  | 'gh'
+  | 'codex'
+  | 'opencode'
+  | 'cursor'
+  | null
 
 interface UIState {
   leftSidebarVisible: boolean
@@ -51,7 +57,7 @@ interface UIState {
   cliLoginModalType: CliLoginModalType
   cliLoginModalCommand: string | null
   cliLoginModalCommandArgs: string[] | null
-  cliLoginModalAction: 'login' | 'update'
+  cliLoginModalAction: 'login' | 'update' | 'install'
   /** Worktree IDs that should auto-trigger investigate-issue when created */
   autoInvestigateWorktreeIds: Set<string>
   /** Worktree IDs that should auto-trigger investigate-pr when created */
@@ -124,10 +130,10 @@ interface UIState {
   openCliUpdateModal: (type: 'claude' | 'gh' | 'codex' | 'opencode') => void
   closeCliUpdateModal: () => void
   openCliLoginModal: (
-    type: 'claude' | 'gh' | 'codex' | 'opencode',
+    type: 'claude' | 'gh' | 'codex' | 'opencode' | 'cursor',
     command: string,
     commandArgs?: string[],
-    action?: 'login' | 'update'
+    action?: 'login' | 'update' | 'install'
   ) => void
   closeCliLoginModal: () => void
   incrementPendingBackgroundCreations: () => void
@@ -701,14 +707,17 @@ export const useUIStore = create<UIState>()(
         ),
 
       setChatSearchOpen: (open: boolean) =>
-        set(state => {
-          if (state.chatSearchOpen === open) return state
-          return { chatSearchOpen: open }
-        }, undefined, 'setChatSearchOpen'),
+        set(
+          state => {
+            if (state.chatSearchOpen === open) return state
+            return { chatSearchOpen: open }
+          },
+          undefined,
+          'setChatSearchOpen'
+        ),
 
       setGitHubDashboardOpen: (open: boolean) =>
         set({ githubDashboardOpen: open }, undefined, 'setGitHubDashboardOpen'),
-
     }),
     {
       name: 'ui-store',

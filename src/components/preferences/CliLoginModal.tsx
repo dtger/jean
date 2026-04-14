@@ -15,6 +15,7 @@ import { claudeCliQueryKeys } from '@/services/claude-cli'
 import { ghCliQueryKeys } from '@/services/gh-cli'
 import { codexCliQueryKeys } from '@/services/codex-cli'
 import { opencodeCliQueryKeys } from '@/services/opencode-cli'
+import { cursorCliQueryKeys } from '@/services/cursor-cli'
 import { githubQueryKeys } from '@/services/github'
 import {
   Dialog,
@@ -27,6 +28,7 @@ import { useUIStore } from '@/store/ui-store'
 import { useShallow } from 'zustand/react/shallow'
 import { useTerminal } from '@/hooks/useTerminal'
 import { disposeTerminal, setOnStopped } from '@/lib/terminal-instances'
+import { BackendLabel } from '@/components/ui/backend-label'
 
 export function CliLoginModal() {
   const [retryKey, setRetryKey] = useState(0)
@@ -59,10 +61,10 @@ export function CliLoginModal() {
 }
 
 interface CliLoginModalContentProps {
-  cliType: 'claude' | 'gh' | 'codex' | 'opencode' | null
+  cliType: 'claude' | 'gh' | 'codex' | 'opencode' | 'cursor' | null
   command: string
   commandArgs: string[] | null
-  action: 'login' | 'update'
+  action: 'login' | 'update' | 'install'
   onClose: () => void
   onRetry: () => void
 }
@@ -90,7 +92,18 @@ function CliLoginModalContent({
         ? 'Codex CLI'
         : cliType === 'opencode'
           ? 'OpenCode CLI'
-          : 'GitHub CLI'
+          : cliType === 'cursor'
+            ? 'Cursor CLI'
+            : 'GitHub CLI'
+  const cliTitle =
+    cliType === 'cursor' ? (
+      <span className="inline-flex items-center gap-2">
+        <BackendLabel backend="cursor" />
+        <span>CLI</span>
+      </span>
+    ) : (
+      cliName
+    )
 
   // Generate unique terminal ID for this login session
   const terminalId = useMemo(() => {
@@ -209,6 +222,8 @@ function CliLoginModalContent({
           queryClient.invalidateQueries({ queryKey: codexCliQueryKeys.all })
         } else if (cliType === 'opencode') {
           queryClient.invalidateQueries({ queryKey: opencodeCliQueryKeys.all })
+        } else if (cliType === 'cursor') {
+          queryClient.invalidateQueries({ queryKey: cursorCliQueryKeys.all })
         }
 
         // Dismiss any lingering update toast for this CLI type
@@ -247,7 +262,12 @@ function CliLoginModalContent({
       <DialogContent className="!w-screen !h-dvh !max-w-screen !rounded-none sm:!w-[calc(100vw-64px)] sm:!max-w-[calc(100vw-64px)] sm:!h-[calc(100vh-64px)] sm:!rounded-lg flex flex-col">
         <DialogHeader>
           <DialogTitle>
-            {cliName} {action === 'update' ? 'Update' : 'Login'}
+            {cliTitle}{' '}
+            {action === 'update'
+              ? 'Update'
+              : action === 'install'
+                ? 'Install'
+                : 'Login'}
           </DialogTitle>
         </DialogHeader>
 
@@ -259,8 +279,12 @@ function CliLoginModalContent({
           <div className="flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3">
             <div>
               <p className="text-sm font-medium text-destructive">
-                {action === 'update' ? 'Update' : 'Login'} process exited
-                unexpectedly
+                {action === 'update'
+                  ? 'Update'
+                  : action === 'install'
+                    ? 'Install'
+                    : 'Login'}{' '}
+                process exited unexpectedly
               </p>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {exitStatus.signal

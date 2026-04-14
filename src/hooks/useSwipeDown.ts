@@ -58,7 +58,10 @@ export function useSwipeDown({
 
     const touch = e.touches[0]
     if (!touch) return
-    const deltaY = Math.max(0, Math.min(MAX_PULL, touch.clientY - startYRef.current))
+    const deltaY = Math.max(
+      0,
+      Math.min(MAX_PULL, touch.clientY - startYRef.current)
+    )
     setTranslateY(deltaY)
     lastYRef.current = touch.clientY
   }, [])

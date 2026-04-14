@@ -1778,6 +1778,26 @@ pub async fn dispatch_command(
             crate::claude_cli::install_claude_cli(app.clone(), version).await?;
             Ok(Value::Null)
         }
+        "check_cursor_cli_installed" => {
+            let result = crate::cursor_cli::check_cursor_cli_installed(app.clone()).await?;
+            to_value(result)
+        }
+        "detect_cursor_in_path" => {
+            let result = crate::cursor_cli::detect_cursor_in_path(app.clone()).await?;
+            to_value(result)
+        }
+        "check_cursor_cli_auth" => {
+            let result = crate::cursor_cli::check_cursor_cli_auth(app.clone()).await?;
+            to_value(result)
+        }
+        "list_cursor_models" => {
+            let result = crate::cursor_cli::list_cursor_models(app.clone()).await?;
+            to_value(result)
+        }
+        "get_cursor_install_command" => {
+            let result = crate::cursor_cli::get_cursor_install_command(app.clone()).await?;
+            to_value(result)
+        }
         "check_opencode_cli_installed" => {
             let result = crate::opencode_cli::check_opencode_cli_installed(app.clone()).await?;
             to_value(result)
@@ -2010,7 +2030,8 @@ pub async fn dispatch_command(
         // =====================================================================
         "check_mcp_health" => {
             let backend: Option<String> = from_field_opt(&args, "backend")?;
-            let result = crate::chat::check_mcp_health(app.clone(), backend).await?;
+            let worktree_path: Option<String> = field_opt(&args, "worktreePath", "worktree_path")?;
+            let result = crate::chat::check_mcp_health(app.clone(), backend, worktree_path).await?;
             to_value(result)
         }
         "get_mcp_servers" => {

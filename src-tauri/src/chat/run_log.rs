@@ -382,6 +382,7 @@ pub fn start_run(
         usage: None, // Set on completion via complete()
         codex_thread_id: None,
         codex_turn_id: None,
+        cursor_chat_id: None,
     };
 
     with_metadata_mut(
@@ -733,16 +734,31 @@ fn should_inject_synthetic_exit_plan(
 ) -> bool {
     // Codex history recovery is handled in parse_codex_run_to_message(), which
     // now covers both structured plan events and plain-text final answers.
-    matches!(backend, Backend::Opencode)
-        && run.status == RunStatus::Completed
+    let base_match = run.status == RunStatus::Completed
         && run.execution_mode.as_deref() == Some("plan")
         && !assistant_msg.cancelled
         && !assistant_msg.content.trim().is_empty()
         && !assistant_msg
             .tool_calls
             .iter()
-            .any(|tc| tc.name == "ExitPlanMode" || tc.name == "CodexPlan")
+            .any(|tc| tc.name == "ExitPlanMode" || tc.name == "CodexPlan");
+
+    match backend {
+        Backend::Opencode => base_match,
+        Backend::Cursor => false, // Plan approval only on real createPlanToolCall / interaction_query
+        _ => false,
+    }
 }
+
+fn should_inject_synthetic_enter_plan(
+    _backend: &Backend,
+    _run: &RunEntry,
+    _assistant_msg: &ChatMessage,
+) -> bool {
+    false
+}
+
+fn inject_synthetic_enter_plan(_run_id: &str, _assistant_msg: &mut ChatMessage) {}
 
 fn inject_synthetic_exit_plan(backend: &Backend, run_id: &str, assistant_msg: &mut ChatMessage) {
     let synthetic_id = format!("synthetic-exit-plan-{run_id}");
@@ -854,9 +870,32 @@ pub fn load_session_messages(
             } else {
                 parse_run_to_message(&lines, run)?
             };
+            let is_cursor_run = run
+                .model
+                .as_deref()
+                .map(crate::is_cursor_model)
+                .unwrap_or(metadata.backend == Backend::Cursor);
+            if is_cursor_run {
+                let original_content = assistant_msg.content.clone();
+                let normalized_content = super::cursor::normalize_cursor_content(&original_content);
+                if normalized_content != assistant_msg.content {
+                    assistant_msg.content = normalized_content.clone();
+                    if let Some(ContentBlock::Text { text }) = assistant_msg
+                        .content_blocks
+                        .iter_mut()
+                        .find(|block| matches!(block, ContentBlock::Text { text } if text == &original_content))
+                    {
+                        *text = normalized_content;
+                    }
+                }
+            }
             assistant_msg.session_id = session_id.to_string();
             if run.status == RunStatus::Running {
                 assistant_msg.id = format!("running-{}", run.run_id);
+            }
+
+            if should_inject_synthetic_enter_plan(&metadata.backend, run, &assistant_msg) {
+                inject_synthetic_enter_plan(&run.run_id, &mut assistant_msg);
             }
 
             // OpenCode/Codex can complete plan-mode runs without a native
@@ -932,6 +971,7 @@ mod tests {
             usage: None,
             codex_thread_id: None,
             codex_turn_id: None,
+            cursor_chat_id: None,
         }
     }
 
@@ -1006,6 +1046,43 @@ mod tests {
             &run,
             &msg,
         ));
+    }
+
+    #[test]
+    fn does_not_inject_for_cursor_when_text_is_not_a_plan() {
+        let run = sample_run();
+        let msg = ChatMessage {
+            content: "Hi — what would you like me to plan?".to_string(),
+            ..sample_assistant_message()
+        };
+
+        assert!(!should_inject_synthetic_exit_plan(
+            &Backend::Cursor,
+            &run,
+            &msg,
+        ));
+    }
+
+    #[test]
+    fn should_inject_synthetic_enter_plan_always_returns_false() {
+        let run = sample_run();
+        let msg = sample_assistant_message();
+
+        assert!(!should_inject_synthetic_enter_plan(
+            &Backend::Cursor,
+            &run,
+            &msg,
+        ));
+    }
+
+    #[test]
+    fn inject_synthetic_enter_plan_is_noop_for_cursor() {
+        let mut msg = sample_assistant_message();
+        let before_tool_count = msg.tool_calls.len();
+
+        inject_synthetic_enter_plan("run-123", &mut msg);
+
+        assert_eq!(msg.tool_calls.len(), before_tool_count);
     }
 }
 

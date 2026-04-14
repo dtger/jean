@@ -36,6 +36,7 @@ export function getSessionProviderDisplayName(
 ): string {
   if (selectedBackend === 'codex') return 'OpenAI'
   if (selectedBackend === 'opencode') return 'OpenCode'
+  if (selectedBackend === 'cursor') return 'Cursor'
   return getProviderDisplayName(selectedProvider ?? null)
 }
 
@@ -143,4 +144,12 @@ export function formatOpencodeModelLabel(raw: string): string {
     .join(' ')
   const qualifierSuffix = qualifier ? ` [${qualifier}]` : ''
   return `${modelLabel} (${formatProviderName(provider)})${qualifierSuffix}`
+}
+
+export function formatCursorModelLabel(raw: string): string {
+  const value = raw.startsWith('cursor/') ? raw.slice('cursor/'.length) : raw
+  if (value === 'auto') return 'Auto'
+  return (
+    value.split('-').filter(Boolean).map(formatModelToken).join(' ') || value
+  )
 }

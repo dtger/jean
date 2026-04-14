@@ -11,12 +11,16 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import type { CustomCliProfile } from '@/types/preferences'
-import { BACKEND_LABELS } from '@/services/mcp'
 import { useAvailableOpencodeModels } from '@/services/opencode-cli'
+import { useAvailableCursorModels } from '@/services/cursor-cli'
 import { cn } from '@/lib/utils'
 import { Kbd } from '@/components/ui/kbd'
+import { BackendLabel } from '@/components/ui/backend-label'
 import { BackendModelPickerContent } from '@/components/chat/toolbar/BackendModelPickerContent'
-import { formatOpencodeModelLabel } from '@/components/chat/toolbar/toolbar-utils'
+import {
+  formatCursorModelLabel,
+  formatOpencodeModelLabel,
+} from '@/components/chat/toolbar/toolbar-utils'
 import { useToolbarDerivedState } from '@/components/chat/toolbar/useToolbarDerivedState'
 import { useToolbarDropdownShortcuts } from '@/components/chat/toolbar/useToolbarDropdownShortcuts'
 import { useIsMobile } from '@/hooks/use-mobile'
@@ -26,14 +30,14 @@ interface DesktopBackendModelPickerProps {
   sessionHasMessages?: boolean
   providerLocked?: boolean
   triggerClassName?: string
-  selectedBackend: 'claude' | 'codex' | 'opencode'
+  selectedBackend: 'claude' | 'codex' | 'opencode' | 'cursor'
   selectedModel: string
   selectedProvider: string | null
-  installedBackends: ('claude' | 'codex' | 'opencode')[]
+  installedBackends: ('claude' | 'codex' | 'opencode' | 'cursor')[]
   customCliProfiles: CustomCliProfile[]
   onModelChange: (model: string) => void
   onBackendModelChange: (
-    backend: 'claude' | 'codex' | 'opencode',
+    backend: 'claude' | 'codex' | 'opencode' | 'cursor',
     model: string
   ) => void
 }
@@ -62,6 +66,9 @@ export function DesktopBackendModelPicker({
   const { data: availableOpencodeModels } = useAvailableOpencodeModels({
     enabled: installedBackends.includes('opencode'),
   })
+  const { data: availableCursorModels } = useAvailableCursorModels({
+    enabled: installedBackends.includes('cursor'),
+  })
 
   const opencodeModelOptions = useMemo(
     () =>
@@ -71,12 +78,21 @@ export function DesktopBackendModelPicker({
       })),
     [availableOpencodeModels]
   )
+  const cursorModelOptions = useMemo(
+    () =>
+      availableCursorModels?.map(model => ({
+        value: `cursor/${model.id}`,
+        label: model.label || formatCursorModelLabel(model.id),
+      })),
+    [availableCursorModels]
+  )
 
   const { selectedModelLabel } = useToolbarDerivedState({
     selectedBackend,
     selectedProvider,
     selectedModel,
     opencodeModelOptions,
+    cursorModelOptions,
     customCliProfiles,
     installedBackends,
   })
@@ -102,9 +118,13 @@ export function DesktopBackendModelPicker({
                 triggerClassName
               )}
             >
-              <span className="truncate">
-                {BACKEND_LABELS[selectedBackend] ?? selectedBackend} ·{' '}
-                {selectedModelLabel}
+              <span className="min-w-0 flex items-center gap-1.5">
+                <BackendLabel
+                  backend={selectedBackend}
+                  className="shrink-0"
+                  badgeClassName="text-[9px] leading-3"
+                />
+                <span className="truncate">· {selectedModelLabel}</span>
               </span>
               {!sessionHasMessages && installedBackends.length > 1 && (
                 <Kbd className="ml-1 hidden 2xl:inline-flex text-[10px]">

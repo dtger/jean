@@ -48,6 +48,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { BackendLabel } from '@/components/ui/backend-label'
 
 const SettingsSection: React.FC<{
   title: string
@@ -468,6 +469,9 @@ export function GeneralPane({
               <SelectItem value="claude">Claude</SelectItem>
               <SelectItem value="codex">Codex</SelectItem>
               <SelectItem value="opencode">OpenCode</SelectItem>
+              <SelectItem value="cursor">
+                <BackendLabel backend="cursor" />
+              </SelectItem>
             </SelectContent>
           </Select>
         </InlineField>

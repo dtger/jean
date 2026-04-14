@@ -51,7 +51,11 @@ import {
   stripAllMarkers,
 } from './message-content-utils'
 import { hasQuestionAnswerOutput } from '@/types/chat'
-import { MODEL_OPTIONS } from '@/components/chat/toolbar/toolbar-options'
+import {
+  EFFORT_LEVEL_OPTIONS,
+  MODEL_OPTIONS,
+  THINKING_LEVEL_OPTIONS,
+} from '@/components/chat/toolbar/toolbar-options'
 
 interface MessageItemProps {
   /** The message to render */
@@ -359,8 +363,26 @@ export const MessageItem = memo(function MessageItem({
               const hasRenderedPlanItem = timeline.some(
                 item => item.type === 'exitPlanMode'
               )
+              const hasRenderedTextItem = timeline.some(
+                item => item.type === 'text'
+              )
+              const fallbackAssistantIntro =
+                !hasRenderedTextItem && message.role === 'assistant'
+                  ? (fallbackPrePlanText ??
+                    (!isDuplicatePlanTextBlock(
+                      displayContent,
+                      resolvedPlan.content
+                    )
+                      ? displayContent
+                      : null))
+                  : null
               return (
                 <>
+                  {fallbackAssistantIntro && (
+                    <Markdown streaming={message.cancelled}>
+                      {fallbackAssistantIntro}
+                    </Markdown>
+                  )}
                   {timeline.map(item => (
                     <ErrorBoundary
                       key={item.key}
@@ -372,184 +394,192 @@ export const MessageItem = memo(function MessageItem({
                     >
                       {(() => {
                         switch (item.type) {
-                      case 'thinking':
-                        return (
-                          <ThinkingBlock
-                            thinking={item.thinking}
-                            isStreaming={false}
-                          />
-                        )
-                      case 'text': {
-                        const textBlockIndex = message.content_blocks?.findIndex(
-                          block =>
-                            block.type === 'text' && block.text === item.text
-                        )
-                        if (
-                          textBlockIndex !== undefined &&
-                          textBlockIndex >= 0 &&
-                          hiddenPlanTextBlockIndices.has(textBlockIndex)
-                        ) {
-                          return null
-                        }
-                        if (
-                          isDuplicatePlanTextBlock(
-                            item.text,
-                            resolvedPlan.content
-                          )
-                        ) {
-                          return null
-                        }
-                        if (hasReviewFindings(item.text)) {
-                          const findings = parseReviewFindings(item.text)
-                          const strippedText = stripFindingBlocks(item.text)
-                          return (
-                            <div>
-                              <Markdown streaming={message.cancelled}>
-                                {strippedText}
-                              </Markdown>
-                              {findings.length > 0 && (
-                                <ReviewFindingsList
-                                  findings={findings}
-                                  sessionId={sessionId}
-                                  onFix={onFixFinding}
-                                  onFixAll={onFixAllFindings}
-                                  isFixedFn={handleIsFindingFixed}
-                                  disabled={isSending}
-                                />
-                              )}
-                            </div>
-                          )
-                        }
-                        return (
-                          <Markdown streaming={message.cancelled}>
-                            {item.text}
-                          </Markdown>
-                        )
-                      }
-                      case 'task':
-                        return (
-                          <TaskCallInline
-                            taskToolCall={item.taskTool}
-                            subToolCalls={item.subTools}
-                            allToolCalls={message.tool_calls ?? []}
-                            onFileClick={onFileClick}
-                            isStreaming={false}
-                          />
-                        )
-                      case 'standalone':
-                        return (
-                          <ToolCallInline
-                            toolCall={item.tool}
-                            onFileClick={onFileClick}
-                            isStreaming={false}
-                          />
-                        )
-                      case 'stackedGroup':
-                        return (
-                          <StackedGroup
-                            items={item.items}
-                            onFileClick={onFileClick}
-                            isStreaming={false}
-                          />
-                        )
-                      case 'askUserQuestion': {
-                        // Question is answered if: (1) follow-up user message exists (Claude),
-                        // (2) ephemeral Zustand state says so, or (3) tool has output (OpenCode —
-                        // the tool_result is persisted in the message, surviving reloads)
-                        const isAnswered =
-                          hasFollowUpMessage ||
-                          isQuestionAnswered(message.session_id, item.tool.id) ||
-                          hasQuestionAnswerOutput(item.tool.output)
-                        const rawInput = item.tool.input as {
-                          questions: (Question & { multiple?: boolean })[]
-                        }
-                        const normalizedQuestions = rawInput.questions.map(
-                          q => ({
-                            ...q,
-                            multiSelect:
-                              q.multiSelect ?? q.multiple === true,
-                          })
-                        )
-                        return (
-                          <AskUserQuestion
-                            toolCallId={item.tool.id}
-                            questions={normalizedQuestions}
-                            introText={item.introText}
-                            hasFollowUpMessage={
-                              hasFollowUpMessage ||
-                              hasQuestionAnswerOutput(item.tool.output)
+                          case 'thinking':
+                            return (
+                              <ThinkingBlock
+                                thinking={item.thinking}
+                                isStreaming={false}
+                              />
+                            )
+                          case 'text': {
+                            const textBlockIndex =
+                              message.content_blocks?.findIndex(
+                                block =>
+                                  block.type === 'text' &&
+                                  block.text === item.text
+                              )
+                            if (
+                              textBlockIndex !== undefined &&
+                              textBlockIndex >= 0 &&
+                              hiddenPlanTextBlockIndices.has(textBlockIndex)
+                            ) {
+                              return null
                             }
-                            isSkipped={areQuestionsSkipped(message.session_id)}
-                            onSubmit={(toolCallId, answers) =>
-                              onQuestionAnswer(
-                                toolCallId,
-                                answers,
-                                normalizedQuestions
+                            if (
+                              isDuplicatePlanTextBlock(
+                                item.text,
+                                resolvedPlan.content
+                              )
+                            ) {
+                              return null
+                            }
+                            if (hasReviewFindings(item.text)) {
+                              const findings = parseReviewFindings(item.text)
+                              const strippedText = stripFindingBlocks(item.text)
+                              return (
+                                <div>
+                                  <Markdown streaming={message.cancelled}>
+                                    {strippedText}
+                                  </Markdown>
+                                  {findings.length > 0 && (
+                                    <ReviewFindingsList
+                                      findings={findings}
+                                      sessionId={sessionId}
+                                      onFix={onFixFinding}
+                                      onFixAll={onFixAllFindings}
+                                      isFixedFn={handleIsFindingFixed}
+                                      disabled={isSending}
+                                    />
+                                  )}
+                                </div>
                               )
                             }
-                            onSkip={onQuestionSkip}
-                            readOnly={isAnswered}
-                            submittedAnswers={
-                              isAnswered
-                                ? getSubmittedAnswers(
-                                    message.session_id,
-                                    item.tool.id
+                            return (
+                              <Markdown streaming={message.cancelled}>
+                                {item.text}
+                              </Markdown>
+                            )
+                          }
+                          case 'task':
+                            return (
+                              <TaskCallInline
+                                taskToolCall={item.taskTool}
+                                subToolCalls={item.subTools}
+                                allToolCalls={message.tool_calls ?? []}
+                                onFileClick={onFileClick}
+                                isStreaming={false}
+                              />
+                            )
+                          case 'standalone':
+                            return (
+                              <ToolCallInline
+                                toolCall={item.tool}
+                                onFileClick={onFileClick}
+                                isStreaming={false}
+                              />
+                            )
+                          case 'stackedGroup':
+                            return (
+                              <StackedGroup
+                                items={item.items}
+                                onFileClick={onFileClick}
+                                isStreaming={false}
+                              />
+                            )
+                          case 'askUserQuestion': {
+                            // Question is answered if: (1) follow-up user message exists (Claude),
+                            // (2) ephemeral Zustand state says so, or (3) tool has output (OpenCode —
+                            // the tool_result is persisted in the message, surviving reloads)
+                            const isAnswered =
+                              hasFollowUpMessage ||
+                              isQuestionAnswered(
+                                message.session_id,
+                                item.tool.id
+                              ) ||
+                              hasQuestionAnswerOutput(item.tool.output)
+                            const rawInput = item.tool.input as {
+                              questions: (Question & { multiple?: boolean })[]
+                            }
+                            const normalizedQuestions = rawInput.questions.map(
+                              q => ({
+                                ...q,
+                                multiSelect:
+                                  q.multiSelect ?? q.multiple === true,
+                              })
+                            )
+                            return (
+                              <AskUserQuestion
+                                toolCallId={item.tool.id}
+                                questions={normalizedQuestions}
+                                introText={item.introText}
+                                hasFollowUpMessage={
+                                  hasFollowUpMessage ||
+                                  hasQuestionAnswerOutput(item.tool.output)
+                                }
+                                isSkipped={areQuestionsSkipped(
+                                  message.session_id
+                                )}
+                                onSubmit={(toolCallId, answers) =>
+                                  onQuestionAnswer(
+                                    toolCallId,
+                                    answers,
+                                    normalizedQuestions
                                   )
-                                : undefined
+                                }
+                                onSkip={onQuestionSkip}
+                                readOnly={isAnswered}
+                                submittedAnswers={
+                                  isAnswered
+                                    ? getSubmittedAnswers(
+                                        message.session_id,
+                                        item.tool.id
+                                      )
+                                    : undefined
+                                }
+                                toolOutput={item.tool.output ?? undefined}
+                              />
+                            )
+                          }
+                          case 'enterPlanMode':
+                            return (
+                              <ToolCallInline
+                                toolCall={item.tool}
+                                onFileClick={onFileClick}
+                                isStreaming={false}
+                              />
+                            )
+                          case 'exitPlanMode': {
+                            const inlinePlan = resolvePlanContent({
+                              toolCalls: [item.tool],
+                              messageContent: message.content,
+                              contentBlocks: message.content_blocks,
+                            }).content
+                            if (inlinePlan) {
+                              return (
+                                <PlanDisplay
+                                  content={inlinePlan}
+                                  defaultCollapsed={
+                                    message.plan_approved || hasFollowUpMessage
+                                  }
+                                />
+                              )
                             }
-                            toolOutput={item.tool.output ?? undefined}
-                          />
-                        )
-                      }
-                      case 'enterPlanMode':
-                        return (
-                          <ToolCallInline
-                            toolCall={item.tool}
-                            onFileClick={onFileClick}
-                            isStreaming={false}
-                          />
-                        )
-                      case 'exitPlanMode': {
-                        const inlinePlan = resolvePlanContent({
-                          toolCalls: [item.tool],
-                          messageContent: message.content,
-                          contentBlocks: message.content_blocks,
-                        }).content
-                        if (inlinePlan) {
-                          return (
-                            <PlanDisplay
-                              content={inlinePlan}
-                              defaultCollapsed={
-                                message.plan_approved || hasFollowUpMessage
-                              }
-                            />
-                          )
+                            const planFilePath = findPlanFilePath(
+                              message.tool_calls ?? []
+                            )
+                            if (!planFilePath) return null
+                            return (
+                              <PlanDisplay
+                                filePath={planFilePath}
+                                defaultCollapsed={
+                                  message.plan_approved || hasFollowUpMessage
+                                }
+                              />
+                            )
+                          }
+                          case 'unknown':
+                            return (
+                              <div className="text-xs text-muted-foreground border rounded px-2 py-1">
+                                Unsupported content type: &quot;{item.rawType}
+                                &quot; — if you see this, please report it as a
+                                bug
+                              </div>
+                            )
+                          default:
+                            return null
                         }
-                        const planFilePath = findPlanFilePath(
-                          message.tool_calls ?? []
-                        )
-                        if (!planFilePath) return null
-                        return (
-                          <PlanDisplay
-                            filePath={planFilePath}
-                            defaultCollapsed={
-                              message.plan_approved || hasFollowUpMessage
-                            }
-                          />
-                        )
-                      }
-                      case 'unknown':
-                        return (
-                          <div className="text-xs text-muted-foreground border rounded px-2 py-1">
-                            Unsupported content type: &quot;{item.rawType}&quot;
-                            — if you see this, please report it as a bug
-                          </div>
-                        )
-                        default:
-                          return null
-                      }
-                    })()}
-                  </ErrorBoundary>
+                      })()}
+                    </ErrorBoundary>
                   ))}
                   {resolvedPlan.content && !hasRenderedPlanItem && (
                     <PlanDisplay
@@ -586,7 +616,9 @@ export const MessageItem = memo(function MessageItem({
       ) : (
         <>
           {message.role === 'assistant' && fallbackPrePlanText && (
-            <Markdown streaming={message.cancelled}>{fallbackPrePlanText}</Markdown>
+            <Markdown streaming={message.cancelled}>
+              {fallbackPrePlanText}
+            </Markdown>
           )}
           {/* Fallback: Show tool calls first for assistant messages (old format) */}
           {message.role === 'assistant' &&
@@ -609,9 +641,7 @@ export const MessageItem = memo(function MessageItem({
             !skipToolCalls && (
               <PlanDisplay
                 content={resolvedPlan.content}
-                defaultCollapsed={
-                  message.plan_approved || hasFollowUpMessage
-                }
+                defaultCollapsed={message.plan_approved || hasFollowUpMessage}
               />
             )}
           {/* Show content after tool calls */}
@@ -620,33 +650,33 @@ export const MessageItem = memo(function MessageItem({
               message.role === 'assistant' &&
               isDuplicatePlanTextBlock(displayContent, resolvedPlan.content)
             ) && (
-            <div>
-              {message.role === 'assistant' &&
-              hasReviewFindings(displayContent) ? (
-                <>
+              <div>
+                {message.role === 'assistant' &&
+                hasReviewFindings(displayContent) ? (
+                  <>
+                    <Markdown streaming={message.cancelled}>
+                      {stripFindingBlocks(displayContent)}
+                    </Markdown>
+                    <ReviewFindingsList
+                      findings={parseReviewFindings(displayContent)}
+                      sessionId={sessionId}
+                      onFix={onFixFinding}
+                      onFixAll={onFixAllFindings}
+                      isFixedFn={handleIsFindingFixed}
+                      disabled={isSending}
+                    />
+                  </>
+                ) : message.role === 'user' ? (
+                  <div className="whitespace-pre-wrap break-words">
+                    {displayContent}
+                  </div>
+                ) : (
                   <Markdown streaming={message.cancelled}>
-                    {stripFindingBlocks(displayContent)}
+                    {displayContent}
                   </Markdown>
-                  <ReviewFindingsList
-                    findings={parseReviewFindings(displayContent)}
-                    sessionId={sessionId}
-                    onFix={onFixFinding}
-                    onFixAll={onFixAllFindings}
-                    isFixedFn={handleIsFindingFixed}
-                    disabled={isSending}
-                  />
-                </>
-              ) : message.role === 'user' ? (
-                <div className="whitespace-pre-wrap break-words">
-                  {displayContent}
-                </div>
-              ) : (
-                <Markdown streaming={message.cancelled}>
-                  {displayContent}
-                </Markdown>
-              )}
-            </div>
-          )}
+                )}
+              </div>
+            )}
           {/* Show ExitPlanMode button after content */}
           {message.role === 'assistant' &&
             (message.tool_calls?.length ?? 0) > 0 &&
@@ -731,6 +761,24 @@ export const MessageItem = memo(function MessageItem({
                   message.execution_mode !== 'plan' && (
                     <span className="capitalize">
                       · {message.execution_mode}
+                    </span>
+                  )}
+                {message.effort_level && (
+                  <span>
+                    ·{' '}
+                    {EFFORT_LEVEL_OPTIONS.find(
+                      o => o.value === message.effort_level
+                    )?.label ?? message.effort_level}
+                  </span>
+                )}
+                {!message.effort_level &&
+                  message.thinking_level &&
+                  message.thinking_level !== 'off' && (
+                    <span>
+                      ·{' '}
+                      {THINKING_LEVEL_OPTIONS.find(
+                        o => o.value === message.thinking_level
+                      )?.label ?? message.thinking_level}
                     </span>
                   )}
               </div>

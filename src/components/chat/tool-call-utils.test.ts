@@ -145,4 +145,19 @@ describe('isDuplicatePlanTextBlock', () => {
       )
     ).toBe(false)
   })
+
+  it('matches Cursor CLI plan text that has no "Plan:" prefix (direct equality)', () => {
+    const planText =
+      '1. Do you want me to switch out of plan mode and implement now?\n\n- a) Yes, proceed\n- b) No, stay in plan mode'
+    expect(isDuplicatePlanTextBlock(planText, planText)).toBe(true)
+  })
+
+  it('does not suppress unrelated text even when a plan exists', () => {
+    expect(
+      isDuplicatePlanTextBlock(
+        'Here is some intro text.',
+        '1. Do you want me to switch out of plan mode?'
+      )
+    ).toBe(false)
+  })
 })

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useCallback } from 'react'
 import { Kbd } from '@/components/ui/kbd'
+import { BackendLabel } from '@/components/ui/backend-label'
 import {
   Tooltip,
   TooltipContent,
@@ -58,7 +59,7 @@ import {
   McpStatusDot,
   mcpStatusHint,
 } from '@/components/chat/toolbar/McpStatusDot'
-import { groupServersByBackend, BACKEND_LABELS } from '@/services/mcp'
+import { groupServersByBackend, mcpKey } from '@/services/mcp'
 import type { CliBackend } from '@/types/preferences'
 import {
   EFFORT_LEVEL_OPTIONS,
@@ -73,7 +74,7 @@ import { ExecutionModeDropdown } from '@/components/chat/toolbar/ExecutionModeDr
 
 interface DesktopToolbarControlsProps {
   hasPendingQuestions: boolean
-  selectedBackend: 'claude' | 'codex' | 'opencode'
+  selectedBackend: 'claude' | 'codex' | 'opencode' | 'cursor'
   selectedModel: string
   selectedProvider: string | null
   selectedThinkingLevel: ThinkingLevel
@@ -118,13 +119,14 @@ interface DesktopToolbarControlsProps {
   onResolvePrConflicts: () => void
   onLoadContext: () => void
   onAttach: () => void
-  installedBackends: ('claude' | 'codex' | 'opencode')[]
+  installedBackends: ('claude' | 'codex' | 'opencode' | 'cursor')[]
   onSetExecutionMode: (mode: ExecutionMode) => void
+  availableExecutionModes: ExecutionMode[]
   onToggleMcpServer: (name: string) => void
 
   handleModelChange: (value: string) => void
   handleBackendModelChange: (
-    backend: 'claude' | 'codex' | 'opencode',
+    backend: 'claude' | 'codex' | 'opencode' | 'cursor',
     model: string
   ) => void
   handleProviderChange: (value: string) => void
@@ -182,6 +184,7 @@ export function DesktopToolbarControls({
   onAttach,
   installedBackends,
   onSetExecutionMode,
+  availableExecutionModes,
   onToggleMcpServer,
   handleModelChange,
   handleBackendModelChange,
@@ -271,26 +274,29 @@ export function DesktopToolbarControls({
                     <>
                       {idx > 0 && <DropdownMenuSeparator />}
                       <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-medium py-1">
-                        {BACKEND_LABELS[backend] ?? backend}
+                        <BackendLabel
+                          backend={backend}
+                          badgeClassName="text-[8px] leading-3"
+                        />
                       </DropdownMenuLabel>
                     </>
                   )}
                   {(grouped[backend] ?? []).map(server => {
-                    const status = mcpStatuses?.[server.name]
-                    const hint = mcpStatusHint(status)
+                    const key = mcpKey(backend, server.name)
+                    const status = mcpStatuses?.[key]
+                    const hint = mcpStatusHint(status, backend)
                     const item = (
                       <DropdownMenuCheckboxItem
                         key={`${backend}-${server.name}`}
                         checked={
-                          !server.disabled &&
-                          enabledMcpServers.includes(server.name)
+                          !server.disabled && enabledMcpServers.includes(key)
                         }
-                        onCheckedChange={() => onToggleMcpServer(server.name)}
+                        onCheckedChange={() => onToggleMcpServer(key)}
                         disabled={server.disabled}
                         className={server.disabled ? 'opacity-50' : undefined}
                       >
                         <span className="flex items-center gap-1.5">
-                          <McpStatusDot status={status} />
+                          <McpStatusDot status={status} backend={backend} />
                           {server.name}
                         </span>
                         <span className="ml-auto pl-4 text-xs text-muted-foreground">
@@ -822,6 +828,7 @@ export function DesktopToolbarControls({
 
       <ExecutionModeDropdown
         executionMode={executionMode}
+        availableModes={availableExecutionModes}
         disabled={hasPendingQuestions}
         onSetExecutionMode={onSetExecutionMode}
         className="hidden @xl:flex"

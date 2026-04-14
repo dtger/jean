@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils'
 
 interface ExecutionModeDropdownProps {
   executionMode: ExecutionMode
+  availableModes?: ExecutionMode[]
   disabled?: boolean
   onSetExecutionMode: (mode: ExecutionMode) => void
   className?: string
@@ -57,6 +58,7 @@ const MODE_META: Record<
 
 export function ExecutionModeDropdown({
   executionMode,
+  availableModes = ['plan', 'build', 'yolo'],
   disabled = false,
   onSetExecutionMode,
   className,
@@ -79,7 +81,9 @@ export function ExecutionModeDropdown({
                 className
               )}
             >
-              <ActiveIcon className={cn('h-3.5 w-3.5', activeMode.iconClassName)} />
+              <ActiveIcon
+                className={cn('h-3.5 w-3.5', activeMode.iconClassName)}
+              />
               <span>{activeMode.label}</span>
             </button>
           </DropdownMenuTrigger>
@@ -91,26 +95,25 @@ export function ExecutionModeDropdown({
           value={executionMode}
           onValueChange={value => onSetExecutionMode(value as ExecutionMode)}
         >
-          {(Object.entries(MODE_META) as [ExecutionMode, typeof activeMode][]).map(
-            ([mode, meta]) => {
-              const Icon = meta.icon
-              return (
-                <div key={mode}>
-                  {mode === 'yolo' && <DropdownMenuSeparator />}
-                  <DropdownMenuRadioItem
-                    value={mode}
-                    className={meta.itemClassName}
-                  >
-                    <Icon className={cn('mr-2 h-4 w-4', meta.iconClassName)} />
-                    {meta.label}
-                    <span className="ml-auto pl-4 text-xs text-muted-foreground">
-                      {meta.description}
-                    </span>
-                  </DropdownMenuRadioItem>
-                </div>
-              )
-            }
-          )}
+          {availableModes.map(mode => {
+            const meta = MODE_META[mode]
+            const Icon = meta.icon
+            return (
+              <div key={mode}>
+                {mode === 'yolo' && <DropdownMenuSeparator />}
+                <DropdownMenuRadioItem
+                  value={mode}
+                  className={meta.itemClassName}
+                >
+                  <Icon className={cn('mr-2 h-4 w-4', meta.iconClassName)} />
+                  {meta.label}
+                  <span className="ml-auto pl-4 text-xs text-muted-foreground">
+                    {meta.description}
+                  </span>
+                </DropdownMenuRadioItem>
+              </div>
+            )
+          })}
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>

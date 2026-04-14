@@ -11,7 +11,7 @@ export interface WorkflowRunDetail {
 }
 
 export interface InvestigateOverride {
-  backend: 'claude' | 'codex' | 'opencode'
+  backend: 'claude' | 'codex' | 'opencode' | 'cursor'
   model: string
 }
 

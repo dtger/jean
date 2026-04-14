@@ -99,7 +99,9 @@ async function hydrateCompletedSessionFromBackend(
 ): Promise<void> {
   const worktreePath = useChatStore.getState().worktreePaths[worktreeId]
   if (!worktreePath) {
-    queryClient.invalidateQueries({ queryKey: chatQueryKeys.session(sessionId) })
+    queryClient.invalidateQueries({
+      queryKey: chatQueryKeys.session(sessionId),
+    })
     return
   }
 
@@ -116,7 +118,9 @@ async function hydrateCompletedSessionFromBackend(
       error
     )
   } finally {
-    queryClient.invalidateQueries({ queryKey: chatQueryKeys.session(sessionId) })
+    queryClient.invalidateQueries({
+      queryKey: chatQueryKeys.session(sessionId),
+    })
   }
 }
 
@@ -1211,7 +1215,7 @@ export default function useStreamingEvents({
       })
     })
 
-    // Handle errors from Claude CLI
+    // Handle errors from any CLI backend (Claude, Codex, OpenCode, Cursor)
     const unlistenError = listen<ErrorEvent>('chat:error', event => {
       const { session_id, error } = event.payload
 
@@ -1750,7 +1754,7 @@ export default function useStreamingEvents({
         case 'backend':
           store.setSelectedBackend(
             session_id,
-            value as 'claude' | 'codex' | 'opencode'
+            value as 'claude' | 'codex' | 'opencode' | 'cursor'
           )
           break
         case 'model':

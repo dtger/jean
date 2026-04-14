@@ -17,6 +17,7 @@ export interface ResolvedSessionDebugDetails {
 
 function getModelImpliedBackend(model: string | undefined): Backend | null {
   if (!model) return null
+  if (model.startsWith('cursor/')) return 'cursor'
   if (model.startsWith('opencode/')) return 'opencode'
   if (model.startsWith('codex') || model.includes('codex')) return 'codex'
   if (model.startsWith('gpt-')) return 'codex'
@@ -73,7 +74,9 @@ export function resolveSessionDebugDetails(params: {
       ? (preferences?.selected_codex_model ?? 'gpt-5.4')
       : finalBackend === 'opencode'
         ? (preferences?.selected_opencode_model ?? 'opencode/gpt-5.3-codex')
-        : (preferences?.selected_model ?? 'opus')
+        : finalBackend === 'cursor'
+          ? (preferences?.selected_cursor_model ?? 'cursor/auto')
+          : (preferences?.selected_model ?? 'opus')
 
   return {
     selectedBackend: finalBackend,

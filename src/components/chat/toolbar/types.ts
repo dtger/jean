@@ -1,5 +1,10 @@
 import type { ClaudeModel, CustomCliProfile } from '@/types/preferences'
-import type { ThinkingLevel, EffortLevel, ExecutionMode } from '@/types/chat'
+import type {
+  ThinkingLevel,
+  EffortLevel,
+  ExecutionMode,
+  Backend,
+} from '@/types/chat'
 import type { McpServerInfo } from '@/types/chat'
 import type {
   PrDisplayStatus,
@@ -32,7 +37,7 @@ export interface ChatToolbarProps {
   hasPendingAttachments: boolean
   hasInputValue: boolean
   executionMode: ExecutionMode
-  selectedBackend: 'claude' | 'codex' | 'opencode'
+  selectedBackend: Backend
   selectedModel: string
   selectedProvider: string | null
   selectedThinkingLevel: ThinkingLevel
@@ -78,10 +83,10 @@ export interface ChatToolbarProps {
   onResolveConflicts: () => void
   hasOpenPr: boolean
   onSetDiffRequest: (request: DiffRequest) => void
-  installedBackends: ('claude' | 'codex' | 'opencode')[]
+  installedBackends: ('claude' | 'codex' | 'opencode' | 'cursor')[]
   onModelChange: (model: ClaudeModel) => void
   onBackendModelChange: (
-    backend: 'claude' | 'codex' | 'opencode',
+    backend: 'claude' | 'codex' | 'opencode' | 'cursor',
     model: string
   ) => void
   onProviderChange: (provider: string | null) => void

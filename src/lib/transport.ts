@@ -679,10 +679,7 @@ class WsTransport {
           }
           this._lastSeqBySession.set(sessionId, msg.seq)
           // Track actively streaming sessions
-          if (
-            msg.event === 'chat:chunk' ||
-            msg.event === 'chat:thinking'
-          ) {
+          if (msg.event === 'chat:chunk' || msg.event === 'chat:thinking') {
             this._activeStreamingSessions.add(sessionId)
           } else if (
             msg.event === 'chat:done' ||

@@ -271,15 +271,28 @@ function App() {
         // The server persists these flags from the previous turn's completion;
         // if a new turn is in-flight they're stale and would show approve buttons.
         if (data.runningSessions?.length) {
+          const runningSessionIds = new Set(data.runningSessions)
           for (const sessionId of data.runningSessions) {
-            delete reviewingUpdates[sessionId]
-            delete waitingUpdates[sessionId]
+            runningSessionIds.add(sessionId)
           }
+          const filteredReviewingUpdates = Object.fromEntries(
+            Object.entries(reviewingUpdates).filter(
+              ([sessionId]) => !runningSessionIds.has(sessionId)
+            )
+          )
+          const filteredWaitingUpdates = Object.fromEntries(
+            Object.entries(waitingUpdates).filter(
+              ([sessionId]) => !runningSessionIds.has(sessionId)
+            )
+          )
+          storeUpdates.reviewingSessions = filteredReviewingUpdates
+          storeUpdates.waitingForInputSessionIds = filteredWaitingUpdates
+        } else {
+          storeUpdates.reviewingSessions = reviewingUpdates
+          storeUpdates.waitingForInputSessionIds = waitingUpdates
         }
         // Replace (not merge) reviewing/waiting state — server is source of truth.
         // Merging would keep stale entries from sessions that changed while disconnected.
-        storeUpdates.reviewingSessions = reviewingUpdates
-        storeUpdates.waitingForInputSessionIds = waitingUpdates
         if (Object.keys(storeUpdates).length > 0) {
           beginSessionStateHydration()
           try {
@@ -346,7 +359,9 @@ function App() {
           currentKeys.length === newKeys.length &&
           newKeys.every(k => current[k]) &&
           currentStartKeys.length === newStartKeys.length &&
-          newStartKeys.every(k => currentSendStartedAt[k] === runningSendStartedAt[k])
+          newStartKeys.every(
+            k => currentSendStartedAt[k] === runningSendStartedAt[k]
+          )
         ) {
           return state
         }

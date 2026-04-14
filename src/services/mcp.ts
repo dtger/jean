@@ -55,6 +55,7 @@ export function invalidateAllMcpServers(
  * - Claude:   ~/.claude.json + .mcp.json
  * - Codex:    ~/.codex/config.toml + .codex/config.toml
  * - OpenCode: ~/.config/opencode/opencode.json + opencode.json
+ * - Cursor:   ~/.cursor/mcp.json + .cursor/mcp.json
  */
 export function useMcpServers(
   worktreePath: string | null | undefined,
@@ -85,6 +86,7 @@ export function useAllBackendsMcpServers(
   const claude = useMcpServers(worktreePath, 'claude')
   const codex = useMcpServers(worktreePath, 'codex')
   const opencode = useMcpServers(worktreePath, 'opencode')
+  const cursor = useMcpServers(worktreePath, 'cursor')
 
   const has = useMemo(() => new Set(installedBackends), [installedBackends])
 
@@ -93,13 +95,15 @@ export function useAllBackendsMcpServers(
     if (has.has('claude') && claude.data) result.push(...claude.data)
     if (has.has('codex') && codex.data) result.push(...codex.data)
     if (has.has('opencode') && opencode.data) result.push(...opencode.data)
+    if (has.has('cursor') && cursor.data) result.push(...cursor.data)
     return result
-  }, [has, claude.data, codex.data, opencode.data])
+  }, [has, claude.data, codex.data, cursor.data, opencode.data])
 
   const isLoading =
     (has.has('claude') && claude.isLoading) ||
     (has.has('codex') && codex.isLoading) ||
-    (has.has('opencode') && opencode.isLoading)
+    (has.has('opencode') && opencode.isLoading) ||
+    (has.has('cursor') && cursor.isLoading)
 
   return { data: servers, isLoading }
 }
@@ -112,12 +116,18 @@ export const MCP_HEALTH_KEY = 'mcp-health'
  * Manual trigger only (enabled: false) — call refetch() to run.
  * Results are cached for 30s to avoid redundant health checks.
  */
-export function useMcpHealthCheck(backend: CliBackend = 'claude') {
+export function useMcpHealthCheck(
+  backend: CliBackend = 'claude',
+  worktreePath?: string | null
+) {
   return useQuery({
-    queryKey: [MCP_HEALTH_KEY, backend],
+    queryKey: [MCP_HEALTH_KEY, backend, worktreePath ?? ''],
     queryFn: async () => {
       if (!isTauri()) return { statuses: {} } as McpHealthResult
-      return invoke<McpHealthResult>('check_mcp_health', { backend })
+      return invoke<McpHealthResult>('check_mcp_health', {
+        backend,
+        worktreePath: worktreePath ?? null,
+      })
     },
     enabled: false,
     staleTime: 30_000,
@@ -129,10 +139,14 @@ export function useMcpHealthCheck(backend: CliBackend = 'claude') {
  * Check health across ALL installed backends, merging statuses.
  * Returns merged statuses and a combined refetch function.
  */
-export function useAllBackendsMcpHealth(installedBackends: CliBackend[]) {
-  const claude = useMcpHealthCheck('claude')
-  const codex = useMcpHealthCheck('codex')
-  const opencode = useMcpHealthCheck('opencode')
+export function useAllBackendsMcpHealth(
+  installedBackends: CliBackend[],
+  worktreePath?: string | null
+) {
+  const claude = useMcpHealthCheck('claude', worktreePath)
+  const codex = useMcpHealthCheck('codex', worktreePath)
+  const opencode = useMcpHealthCheck('opencode', worktreePath)
+  const cursor = useMcpHealthCheck('cursor', worktreePath)
 
   const has = useMemo(() => new Set(installedBackends), [installedBackends])
 
@@ -142,6 +156,7 @@ export function useAllBackendsMcpHealth(installedBackends: CliBackend[]) {
       ['claude', claude],
       ['codex', codex],
       ['opencode', opencode],
+      ['cursor', cursor],
     ]
     for (const [backend, query] of entries) {
       if (has.has(backend) && query.data?.statuses) {
@@ -151,20 +166,22 @@ export function useAllBackendsMcpHealth(installedBackends: CliBackend[]) {
       }
     }
     return merged
-  }, [has, claude.data, codex.data, opencode.data])
+  }, [has, claude.data, codex.data, cursor.data, opencode.data])
 
   const isFetching =
     (has.has('claude') && claude.isFetching) ||
     (has.has('codex') && codex.isFetching) ||
-    (has.has('opencode') && opencode.isFetching)
+    (has.has('opencode') && opencode.isFetching) ||
+    (has.has('cursor') && cursor.isFetching)
 
   const refetchAll = useMemo(
     () => () => {
       if (has.has('claude')) claude.refetch()
       if (has.has('codex')) codex.refetch()
       if (has.has('opencode')) opencode.refetch()
+      if (has.has('cursor')) cursor.refetch()
     },
-    [has, claude.refetch, codex.refetch, opencode.refetch] // eslint-disable-line react-hooks/exhaustive-deps
+    [has, claude.refetch, codex.refetch, cursor.refetch, opencode.refetch] // eslint-disable-line react-hooks/exhaustive-deps
   )
 
   return { statuses, isFetching, refetchAll }
@@ -202,6 +219,8 @@ export function getNewServersToAutoEnable(
  * When `backend` is provided, only servers belonging to that backend are included.
  * This prevents cross-backend server configs from being sent to the wrong CLI
  * (e.g., a Codex server config being passed to Claude's --mcp-config).
+ * Cursor consumes the enabled server names indirectly from this JSON and syncs
+ * its own CLI approval state before launch.
  */
 export function buildMcpConfigJson(
   allServers: McpServerInfo[],
@@ -275,6 +294,7 @@ export const BACKEND_LABELS: Record<CliBackend, string> = {
   claude: 'Claude',
   codex: 'Codex',
   opencode: 'OpenCode',
+  cursor: 'Cursor',
 }
 
 /** Group servers by their backend field */

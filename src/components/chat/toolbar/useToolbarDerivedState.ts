@@ -2,17 +2,19 @@ import { useMemo } from 'react'
 import type { ClaudeModel, CustomCliProfile } from '@/types/preferences'
 import {
   CODEX_MODEL_OPTIONS,
+  CURSOR_MODEL_OPTIONS,
   MODEL_OPTIONS,
   OPENCODE_MODEL_OPTIONS,
 } from '@/components/chat/toolbar/toolbar-options'
 
 interface UseToolbarDerivedStateArgs {
-  selectedBackend: 'claude' | 'codex' | 'opencode'
+  selectedBackend: 'claude' | 'codex' | 'opencode' | 'cursor'
   selectedProvider: string | null
   selectedModel: string
   opencodeModelOptions?: { value: string; label: string }[]
+  cursorModelOptions?: { value: string; label: string }[]
   customCliProfiles: CustomCliProfile[]
-  installedBackends?: ('claude' | 'codex' | 'opencode')[]
+  installedBackends?: ('claude' | 'codex' | 'opencode' | 'cursor')[]
   availableMcpServers?: { name: string; disabled?: boolean }[]
   enabledMcpServers?: string[]
 }
@@ -22,13 +24,15 @@ export function useToolbarDerivedState({
   selectedProvider,
   selectedModel,
   opencodeModelOptions,
+  cursorModelOptions,
   customCliProfiles,
-  installedBackends = ['claude', 'codex', 'opencode'],
+  installedBackends = ['claude', 'codex', 'opencode', 'cursor'],
   availableMcpServers = [],
   enabledMcpServers = [],
 }: UseToolbarDerivedStateArgs) {
   const isCodex = selectedBackend === 'codex'
   const isOpencode = selectedBackend === 'opencode'
+  const isCursor = selectedBackend === 'cursor'
 
   const activeMcpCount = useMemo(() => {
     const availableNames = new Set(
@@ -75,10 +79,11 @@ export function useToolbarDerivedState({
   }[]
   const resolvedOpencodeModelOptions =
     opencodeModelOptions ?? OPENCODE_MODEL_OPTIONS
+  const resolvedCursorModelOptions = cursorModelOptions ?? CURSOR_MODEL_OPTIONS
 
   const backendModelSections = useMemo(() => {
     const sections: {
-      backend: 'claude' | 'codex' | 'opencode'
+      backend: 'claude' | 'codex' | 'opencode' | 'cursor'
       label: string
       options: { value: string; label: string }[]
     }[] = []
@@ -102,6 +107,12 @@ export function useToolbarDerivedState({
           label: 'OpenCode',
           options: resolvedOpencodeModelOptions,
         })
+      } else if (backend === 'cursor') {
+        sections.push({
+          backend,
+          label: 'Cursor',
+          options: resolvedCursorModelOptions,
+        })
       }
     }
 
@@ -110,18 +121,22 @@ export function useToolbarDerivedState({
     claudeModelOptions,
     codexModelOptions,
     installedBackends,
+    resolvedCursorModelOptions,
     resolvedOpencodeModelOptions,
   ])
 
   const filteredModelOptions = useMemo(() => {
     if (isCodex) return codexModelOptions
     if (isOpencode) return resolvedOpencodeModelOptions
+    if (isCursor) return resolvedCursorModelOptions
     return claudeModelOptions
   }, [
     claudeModelOptions,
     codexModelOptions,
     isCodex,
+    isCursor,
     isOpencode,
+    resolvedCursorModelOptions,
     resolvedOpencodeModelOptions,
   ])
 
@@ -131,10 +146,12 @@ export function useToolbarDerivedState({
 
   return {
     isCodex,
+    isCursor,
     isOpencode,
     activeMcpCount,
     backendModelSections,
     claudeModelOptions,
+    cursorModelOptions: resolvedCursorModelOptions,
     filteredModelOptions,
     opencodeModelOptions: resolvedOpencodeModelOptions,
     selectedModelLabel,

@@ -20,6 +20,10 @@ export const OPENCODE_MODEL_OPTIONS: { value: string; label: string }[] = [
   { value: 'opencode/gpt-5.3-codex', label: 'GPT-5.3 Codex (OpenCode)' },
 ]
 
+export const CURSOR_MODEL_OPTIONS: { value: string; label: string }[] = [
+  { value: 'cursor/auto', label: 'Auto' },
+]
+
 export const THINKING_LEVEL_OPTIONS: {
   value: ThinkingLevel
   label: string

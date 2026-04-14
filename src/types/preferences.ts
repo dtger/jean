@@ -963,9 +963,10 @@ export interface AppPreferences {
 
   confirm_session_close: boolean // Show confirmation dialog before closing sessions/worktrees
   default_execution_mode: ExecutionMode // Default execution mode for new sessions: 'plan', 'build', or 'yolo'
-  default_backend: CliBackend // Default CLI backend for new sessions: 'claude', 'codex', or 'opencode'
+  default_backend: CliBackend // Default CLI backend for new sessions: 'claude', 'codex', 'opencode', or 'cursor'
   selected_codex_model: CodexModel // Default Codex model
   selected_opencode_model: string // Default OpenCode model (provider/model)
+  selected_cursor_model: CursorModel // Default Cursor model
   default_codex_reasoning_effort: CodexReasoningEffort // Default reasoning effort for Codex: 'low' | 'medium' | 'high' | 'xhigh'
   codex_multi_agent_enabled: boolean // Enable Codex multi-agent collaboration (experimental)
   codex_max_agent_threads: number // Max concurrent agent threads (1-8) when multi-agent is enabled
@@ -1165,11 +1166,21 @@ export type MagicPromptReasoningEffort = 'low' | 'medium' | 'high' | null
 // =============================================================================
 
 export type OpenCodeModel = `opencode/${string}`
-export type MagicPromptModel = ClaudeModel | CodexModel | OpenCodeModel
+export type CursorModel = `cursor/${string}`
+export type MagicPromptModel =
+  | ClaudeModel
+  | CodexModel
+  | OpenCodeModel
+  | CursorModel
 
 /** Check if a model string identifies an OpenCode model */
 export function isOpenCodeModel(model: string): model is OpenCodeModel {
   return model.startsWith('opencode/')
+}
+
+/** Check if a model string identifies a Cursor model */
+export function isCursorModel(model: string): model is CursorModel {
+  return model.startsWith('cursor/')
 }
 
 /** Check if a model string identifies a Codex model */
@@ -1193,12 +1204,13 @@ export const codexReasoningOptions: {
 // CLI Backend
 // =============================================================================
 
-export type CliBackend = 'claude' | 'codex' | 'opencode'
+export type CliBackend = 'claude' | 'codex' | 'opencode' | 'cursor'
 
 export const backendOptions: { value: CliBackend; label: string }[] = [
   { value: 'claude', label: 'Claude' },
   { value: 'codex', label: 'Codex' },
   { value: 'opencode', label: 'OpenCode' },
+  { value: 'cursor', label: 'Cursor' },
 ]
 
 export type TerminalApp =
@@ -1533,6 +1545,7 @@ export const defaultPreferences: AppPreferences = {
   default_backend: 'claude', // Default: Claude
   selected_codex_model: 'gpt-5.4', // Default: latest Codex model
   selected_opencode_model: 'opencode/gpt-5.3-codex', // Default OpenCode model
+  selected_cursor_model: 'cursor/auto', // Default Cursor model
   default_codex_reasoning_effort: 'high', // Default: high reasoning
   codex_multi_agent_enabled: false, // Default: disabled
   codex_max_agent_threads: 3, // Default: 3 threads

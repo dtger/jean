@@ -9,9 +9,13 @@ import {
 } from '@/services/git-status'
 import { useChatStore } from '@/store/chat-store'
 import { useRemotePicker } from '@/hooks/useRemotePicker'
-import { useAllBackendsMcpHealth, BACKEND_LABELS } from '@/services/mcp'
+import { useAllBackendsMcpHealth } from '@/services/mcp'
 import type { ClaudeModel } from '@/types/preferences'
-import type { EffortLevel, ThinkingLevel } from '@/types/chat'
+import {
+  getSupportedExecutionModes,
+  type EffortLevel,
+  type ThinkingLevel,
+} from '@/types/chat'
 import type { ChatToolbarProps } from '@/components/chat/toolbar/types'
 import { MobileToolbarMenu } from '@/components/chat/toolbar/MobileToolbarMenu'
 import { MobileBackendModelPickerSheet } from '@/components/chat/toolbar/MobileBackendModelPickerSheet'
@@ -32,6 +36,10 @@ import { useContextViewer } from '@/components/chat/toolbar/useContextViewer'
 import { formatOpencodeModelLabel } from '@/components/chat/toolbar/toolbar-utils'
 import { useAvailableOpencodeModels } from '@/services/opencode-cli'
 import { useIsMobile } from '@/hooks/use-mobile'
+import {
+  BackendLabel,
+  getBackendPlainLabel,
+} from '@/components/ui/backend-label'
 import {
   Tooltip,
   TooltipContent,
@@ -115,7 +123,7 @@ export const ChatToolbar = memo(function ChatToolbar({
     statuses: mcpStatuses,
     isFetching: isHealthChecking,
     refetchAll: checkHealth,
-  } = useAllBackendsMcpHealth(installedBackends)
+  } = useAllBackendsMcpHealth(installedBackends, activeWorktreePath)
 
   const [providerDropdownOpen, setProviderDropdownOpen] = useState(false)
   const [thinkingDropdownOpen, setThinkingDropdownOpen] = useState(false)
@@ -160,10 +168,23 @@ export const ChatToolbar = memo(function ChatToolbar({
       availableMcpServers,
       enabledMcpServers,
     })
+  const availableExecutionModes = getSupportedExecutionModes(selectedBackend)
 
   const backendModelLabel = useMemo(
-    () =>
-      `${BACKEND_LABELS[selectedBackend] ?? selectedBackend} · ${selectedModelLabel}`,
+    () => (
+      <>
+        <BackendLabel
+          backend={selectedBackend}
+          badgeClassName="text-[9px] leading-3"
+        />
+        <span className="truncate">· {selectedModelLabel}</span>
+      </>
+    ),
+    [selectedBackend, selectedModelLabel]
+  )
+
+  const backendModelLabelText = useMemo(
+    () => `${getBackendPlainLabel(selectedBackend)} · ${selectedModelLabel}`,
     [selectedBackend, selectedModelLabel]
   )
 
@@ -294,6 +315,7 @@ export const ChatToolbar = memo(function ChatToolbar({
           selectedBackend={selectedBackend}
           selectedProvider={selectedProvider}
           backendModelLabel={backendModelLabel}
+          backendModelLabelText={backendModelLabelText}
           selectedEffortLevel={selectedEffortLevel}
           selectedThinkingLevel={selectedThinkingLevel}
           hideThinkingLevel={hideThinkingLevel}
@@ -378,6 +400,7 @@ export const ChatToolbar = memo(function ChatToolbar({
 
         <ExecutionModeDropdown
           executionMode={executionMode}
+          availableModes={availableExecutionModes}
           disabled={hasPendingQuestions}
           onSetExecutionMode={onSetExecutionMode}
           className="flex @xl:hidden shrink-0"
@@ -428,6 +451,7 @@ export const ChatToolbar = memo(function ChatToolbar({
           onAttach={onAttach}
           installedBackends={installedBackends}
           onSetExecutionMode={onSetExecutionMode}
+          availableExecutionModes={availableExecutionModes}
           onToggleMcpServer={onToggleMcpServer}
           handleModelChange={handleModelChange}
           handleBackendModelChange={onBackendModelChange}

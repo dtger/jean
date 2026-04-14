@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
   ArrowDownToLine,
   ArrowUpToLine,
@@ -41,12 +41,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import type { CustomCliProfile, CliBackend } from '@/types/preferences'
-import type {
-  EffortLevel,
-  McpServerInfo,
-  ThinkingLevel,
-} from '@/types/chat'
-import { groupServersByBackend, BACKEND_LABELS } from '@/services/mcp'
+import type { EffortLevel, McpServerInfo, ThinkingLevel } from '@/types/chat'
+import { groupServersByBackend, mcpKey } from '@/services/mcp'
 import type {
   LoadedIssueContext,
   LoadedPullRequestContext,
@@ -69,14 +65,16 @@ import {
 import { useUIStore } from '@/store/ui-store'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { cn } from '@/lib/utils'
+import { BackendLabel } from '@/components/ui/backend-label'
 
 interface MobileToolbarMenuProps {
   isDisabled: boolean
   hasOpenPr: boolean
   providerLocked?: boolean
-  selectedBackend: 'claude' | 'codex' | 'opencode'
+  selectedBackend: 'claude' | 'codex' | 'opencode' | 'cursor'
   selectedProvider: string | null
-  backendModelLabel: string
+  backendModelLabel: ReactNode
+  backendModelLabelText: string
   selectedEffortLevel: EffortLevel
   selectedThinkingLevel: ThinkingLevel
   hideThinkingLevel?: boolean
@@ -139,6 +137,7 @@ export function MobileToolbarMenu({
   selectedBackend,
   selectedProvider,
   backendModelLabel,
+  backendModelLabelText,
   selectedEffortLevel,
   selectedThinkingLevel,
   hideThinkingLevel,
@@ -719,7 +718,10 @@ export function MobileToolbarMenu({
         <DropdownMenuItem onSelect={openBackendModelPicker}>
           <Sparkles className="h-4 w-4 text-foreground" />
           <span>Backend / Model</span>
-          <span className="ml-auto min-w-0 max-w-28 truncate text-right text-xs text-muted-foreground">
+          <span
+            className="ml-auto min-w-0 max-w-32 truncate text-right text-xs text-muted-foreground"
+            title={backendModelLabelText}
+          >
             {backendModelLabel}
           </span>
           <ChevronRight className="ml-2 h-4 w-4 shrink-0" />
@@ -816,27 +818,32 @@ export function MobileToolbarMenu({
                       <>
                         {idx > 0 && <DropdownMenuSeparator />}
                         <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-medium py-1">
-                          {BACKEND_LABELS[backend] ?? backend}
+                          <BackendLabel
+                            backend={backend}
+                            badgeClassName="text-[8px] leading-3"
+                          />
                         </DropdownMenuLabel>
                       </>
                     )}
-                    {(grouped[backend] ?? []).map(server => (
-                      <DropdownMenuCheckboxItem
-                        key={`${backend}-${server.name}`}
-                        checked={
-                          !server.disabled &&
-                          enabledMcpServers.includes(server.name)
-                        }
-                        onCheckedChange={() => onToggleMcpServer(server.name)}
-                        disabled={server.disabled}
-                        className={server.disabled ? 'opacity-50' : undefined}
-                      >
-                        {server.name}
-                        <span className="ml-auto pl-4 text-xs text-muted-foreground">
-                          {server.disabled ? 'disabled' : server.scope}
-                        </span>
-                      </DropdownMenuCheckboxItem>
-                    ))}
+                    {(grouped[backend] ?? []).map(server => {
+                      const key = mcpKey(backend, server.name)
+                      return (
+                        <DropdownMenuCheckboxItem
+                          key={`${backend}-${server.name}`}
+                          checked={
+                            !server.disabled && enabledMcpServers.includes(key)
+                          }
+                          onCheckedChange={() => onToggleMcpServer(key)}
+                          disabled={server.disabled}
+                          className={server.disabled ? 'opacity-50' : undefined}
+                        >
+                          {server.name}
+                          <span className="ml-auto pl-4 text-xs text-muted-foreground">
+                            {server.disabled ? 'disabled' : server.scope}
+                          </span>
+                        </DropdownMenuCheckboxItem>
+                      )
+                    })}
                   </div>
                 ))
               })()

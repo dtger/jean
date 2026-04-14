@@ -14,4 +14,13 @@ describe('Markdown', () => {
     expect(orderedLists[0]?.getAttribute('start')).toBeNull()
     expect(orderedLists[1]?.getAttribute('start')).toBe('2')
   })
+
+  it('auto-completes incomplete markdown while streaming', () => {
+    const { container } = render(
+      <Markdown streaming>{'### Birds\n1. Sparrow\n2. Robin\n```ts'}</Markdown>
+    )
+
+    expect(container.querySelectorAll('ol')).toHaveLength(1)
+    expect(container.querySelector('pre')).not.toBeNull()
+  })
 })

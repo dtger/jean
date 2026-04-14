@@ -2,12 +2,14 @@ import {
   MODEL_OPTIONS,
   CODEX_MODEL_OPTIONS,
   OPENCODE_MODEL_OPTIONS,
+  CURSOR_MODEL_OPTIONS,
 } from './toolbar/toolbar-options'
 
 const ALL_MODEL_OPTIONS = [
   ...MODEL_OPTIONS,
   ...CODEX_MODEL_OPTIONS,
   ...OPENCODE_MODEL_OPTIONS,
+  ...CURSOR_MODEL_OPTIONS,
 ]
 
 /**
@@ -25,6 +27,7 @@ export function resolveApprovalLabel(
         selected_model?: string | null
         selected_codex_model?: string | null
         selected_opencode_model?: string | null
+        selected_cursor_model?: string | null
         default_backend?: string | null
       }
     | undefined
@@ -40,7 +43,9 @@ export function resolveApprovalLabel(
       ? (preferences.selected_codex_model ?? 'gpt-5.4')
       : resolvedBackend === 'opencode'
         ? (preferences.selected_opencode_model ?? 'opencode/gpt-5.3-codex')
-        : (preferences.selected_model ?? null)
+        : resolvedBackend === 'cursor'
+          ? (preferences.selected_cursor_model ?? 'cursor/auto')
+          : (preferences.selected_model ?? null)
   const resolvedModel = model ?? backendDefaultModel
   if (!resolvedModel && !resolvedBackend) return null
   const modelLabel = resolvedModel

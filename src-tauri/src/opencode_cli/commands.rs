@@ -409,10 +409,10 @@ struct CachedOpenCodeVersions {
 }
 
 fn save_opencode_versions_cache(app: &AppHandle, versions: &[OpenCodeReleaseInfo]) {
-    let cache_path = match super::config::get_cli_dir(app) {
+    let cache_path = match super::config::ensure_cli_dir(app) {
         Ok(dir) => dir.join(OPENCODE_VERSIONS_CACHE_FILE),
         Err(e) => {
-            log::warn!("Cannot resolve OpenCode CLI dir for cache: {e}");
+            log::warn!("Cannot resolve/create OpenCode CLI dir for cache: {e}");
             return;
         }
     };

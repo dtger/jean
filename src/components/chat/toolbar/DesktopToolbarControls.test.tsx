@@ -79,6 +79,7 @@ function renderDesktopToolbarControls(
     onAttach: vi.fn(),
     installedBackends: ['claude', 'codex', 'opencode'],
     onSetExecutionMode: vi.fn(),
+    availableExecutionModes: ['plan', 'build', 'yolo'],
     onToggleMcpServer: vi.fn(),
     handleModelChange: vi.fn(),
     handleBackendModelChange: vi.fn(),

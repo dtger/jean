@@ -17,15 +17,11 @@ import {
 export function useWorktreeTerminalStatus(worktreeId: string) {
   const hasRunningTerminal = useTerminalStore(state => {
     const terminals = state.terminals[worktreeId] ?? []
-    return terminals.some(
-      t => !!t.command && state.runningTerminals.has(t.id)
-    )
+    return terminals.some(t => !!t.command && state.runningTerminals.has(t.id))
   })
   const hasFailedTerminal = useTerminalStore(state => {
     const terminals = state.terminals[worktreeId] ?? []
-    return terminals.some(
-      t => !!t.command && state.failedTerminals.has(t.id)
-    )
+    return terminals.some(t => !!t.command && state.failedTerminals.has(t.id))
   })
   const showTerminalIndicator = hasRunningTerminal || hasFailedTerminal
 
@@ -56,7 +52,12 @@ export function useWorktreeTerminalStatus(worktreeId: string) {
     return lines
   }, [showTerminalIndicator, worktreeId, listeningPorts])
 
-  return { hasRunningTerminal, hasFailedTerminal, showTerminalIndicator, tooltipLines }
+  return {
+    hasRunningTerminal,
+    hasFailedTerminal,
+    showTerminalIndicator,
+    tooltipLines,
+  }
 }
 
 /**

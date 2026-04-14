@@ -244,8 +244,7 @@ export const useProjectsStore = create<ProjectsUIState>()(
         set(
           state => {
             const currentSortMode =
-              state.projectCanvasSettings[projectId]?.worktreeSortMode ??
-              'created'
+              state.projectCanvasSettings[projectId]?.worktreeSortMode
             if (currentSortMode === sortMode) return state
 
             return {

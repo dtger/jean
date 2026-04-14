@@ -220,6 +220,9 @@ function getDefaultModelForBackend(
   if (backend === 'opencode') {
     return preferences?.selected_opencode_model ?? 'opencode/gpt-5.3-codex'
   }
+  if (backend === 'cursor') {
+    return preferences?.selected_cursor_model ?? 'cursor/auto'
+  }
   return preferences?.selected_model ?? 'opus'
 }
 
@@ -1152,7 +1155,7 @@ export function useMessageHandlers({
       if (resolvedBackend) {
         store.setSelectedBackend(
           newSession.id,
-          resolvedBackend as 'claude' | 'codex' | 'opencode'
+          resolvedBackend as 'claude' | 'codex' | 'opencode' | 'cursor'
         )
       }
       // Optimistically update TanStack Query cache so UI shows correct backend/model
@@ -1391,7 +1394,7 @@ export function useMessageHandlers({
       if (resolvedBackend) {
         store.setSelectedBackend(
           newSession.id,
-          resolvedBackend as 'claude' | 'codex' | 'opencode'
+          resolvedBackend as 'claude' | 'codex' | 'opencode' | 'cursor'
         )
       }
       // Optimistically update TanStack Query cache so UI shows correct backend/model immediately.
@@ -1740,7 +1743,7 @@ export function useMessageHandlers({
       if (resolvedBackend) {
         store.setSelectedBackend(
           newSession.id,
-          resolvedBackend as 'claude' | 'codex' | 'opencode'
+          resolvedBackend as 'claude' | 'codex' | 'opencode' | 'cursor'
         )
       }
       queryClient.setQueryData<Session>(
@@ -2052,7 +2055,7 @@ export function useMessageHandlers({
       if (resolvedBackend) {
         store.setSelectedBackend(
           newSession.id,
-          resolvedBackend as 'claude' | 'codex' | 'opencode'
+          resolvedBackend as 'claude' | 'codex' | 'opencode' | 'cursor'
         )
       }
       queryClient.setQueryData<Session>(

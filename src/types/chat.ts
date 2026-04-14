@@ -27,9 +27,9 @@ export type ThinkingLevel = 'off' | 'think' | 'megathink' | 'ultrathink'
 export type EffortLevel = 'low' | 'medium' | 'high' | 'max'
 
 /**
- * Backend for a chat session (Claude CLI, Codex CLI, or OpenCode)
+ * Backend for a chat session (Claude CLI, Codex CLI, OpenCode, or Cursor)
  */
-export type Backend = 'claude' | 'codex' | 'opencode'
+export type Backend = 'claude' | 'codex' | 'opencode' | 'cursor'
 
 /**
  * Execution mode for Claude CLI permission handling
@@ -41,6 +41,28 @@ export type ExecutionMode = 'plan' | 'build' | 'yolo'
 
 /** Cycle order for execution modes (used by Shift+Tab cycling) */
 export const EXECUTION_MODE_CYCLE: ExecutionMode[] = ['plan', 'build', 'yolo']
+
+export function getSupportedExecutionModes(
+  backend: Backend | undefined
+): ExecutionMode[] {
+  if (backend === 'cursor') return ['plan', 'yolo']
+  return EXECUTION_MODE_CYCLE
+}
+
+export function isExecutionModeSupported(
+  backend: Backend | undefined,
+  mode: ExecutionMode
+): boolean {
+  return getSupportedExecutionModes(backend).includes(mode)
+}
+
+export function normalizeExecutionModeForBackend(
+  backend: Backend | undefined,
+  mode: ExecutionMode
+): ExecutionMode {
+  if (isExecutionModeSupported(backend, mode)) return mode
+  return backend === 'cursor' ? 'yolo' : 'plan'
+}
 
 /**
  * A tool call made by Claude during a response
@@ -149,7 +171,7 @@ export interface Session {
   messages: ChatMessage[]
   /** Message count (populated separately for efficiency when full messages not needed) */
   message_count?: number
-  /** Backend for this session (claude, codex, or opencode) */
+  /** Backend for this session (claude, codex, opencode, or cursor) */
   backend?: Backend
   /** Claude CLI session ID for resuming conversations */
   claude_session_id?: string
@@ -157,6 +179,8 @@ export interface Session {
   codex_thread_id?: string
   /** OpenCode session ID for resuming conversations */
   opencode_session_id?: string
+  /** Cursor chat ID for resuming conversations */
+  cursor_chat_id?: string
   /** Selected model for this session */
   selected_model?: string
   /** Selected thinking level for this session */

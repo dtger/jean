@@ -5,14 +5,29 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import type { McpHealthStatus } from '@/types/chat'
+import type { CliBackend } from '@/types/preferences'
+
+function authHint(backend?: CliBackend): string {
+  switch (backend) {
+    case 'codex':
+      return "Needs authentication — run 'codex mcp auth' to authenticate"
+    case 'opencode':
+      return "Needs authentication — run 'opencode mcp auth' to authenticate"
+    case 'cursor':
+      return "Needs authentication — run 'cursor-agent mcp login <server>' to authenticate"
+    default:
+      return "Needs authentication — run 'claude /mcp' to authenticate"
+  }
+}
 
 // eslint-disable-next-line react-refresh/only-export-components
 export function mcpStatusHint(
-  status: McpHealthStatus | undefined
+  status: McpHealthStatus | undefined,
+  backend?: CliBackend
 ): string | undefined {
   switch (status) {
     case 'needsAuthentication':
-      return "Needs authentication — run 'claude /mcp' to authenticate"
+      return authHint(backend)
     case 'couldNotConnect':
       return 'Could not connect to server'
     default:
@@ -22,8 +37,10 @@ export function mcpStatusHint(
 
 export function McpStatusDot({
   status,
+  backend,
 }: {
   status: McpHealthStatus | undefined
+  backend?: CliBackend
 }) {
   if (!status) return null
 
@@ -47,9 +64,7 @@ export function McpStatusDot({
               <ShieldAlert className="size-3 text-amber-600 dark:text-amber-400" />
             </span>
           </TooltipTrigger>
-          <TooltipContent>
-            {"Needs authentication — run 'claude /mcp' to authenticate"}
-          </TooltipContent>
+          <TooltipContent>{authHint(backend)}</TooltipContent>
         </Tooltip>
       )
     case 'couldNotConnect':

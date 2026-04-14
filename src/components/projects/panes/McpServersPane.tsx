@@ -8,6 +8,7 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from '@/components/ui/tooltip'
+import { BackendLabel } from '@/components/ui/backend-label'
 import { cn } from '@/lib/utils'
 import { useProjects, useUpdateProjectSettings } from '@/services/projects'
 import {
@@ -16,7 +17,6 @@ import {
   getNewServersToAutoEnable,
   useAllBackendsMcpHealth,
   groupServersByBackend,
-  BACKEND_LABELS,
   mcpKey,
   migrateLegacyMcpKeys,
 } from '@/services/mcp'
@@ -43,6 +43,8 @@ function mcpAuthHint(backend: CliBackend): string {
       return "Run 'codex mcp auth' in your terminal to authenticate"
     case 'opencode':
       return "Run 'opencode mcp auth' in your terminal to authenticate"
+    case 'cursor':
+      return "Run 'cursor-agent mcp login <server>' in your terminal to authenticate"
     default:
       return "Run 'claude /mcp' in your terminal to authenticate"
   }
@@ -121,7 +123,7 @@ export function McpServersPane({
     statuses: healthStatuses,
     isFetching: isHealthChecking,
     refetchAll: checkHealth,
-  } = useAllBackendsMcpHealth(installedBackends)
+  } = useAllBackendsMcpHealth(installedBackends, projectPath)
 
   const updateSettings = useUpdateProjectSettings()
 
@@ -228,7 +230,7 @@ export function McpServersPane({
                 {showSectionHeaders && (
                   <div className="flex items-center gap-2 pt-1">
                     <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                      {BACKEND_LABELS[backend]}
+                      <BackendLabel backend={backend} />
                     </span>
                     <Separator className="flex-1" />
                   </div>

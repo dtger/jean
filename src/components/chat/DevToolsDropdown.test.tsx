@@ -4,9 +4,13 @@ import { render, screen, within } from '@/test/test-utils'
 import { useChatStore } from '@/store/chat-store'
 import { DevToolsDropdown } from './DevToolsDropdown'
 
-const invokeMock = vi.fn(() => Promise.resolve(undefined))
-const toastSuccessMock = vi.fn()
-const sendMessageMutateMock = vi.fn()
+const { invokeMock, toastSuccessMock, sendMessageMutateMock } = vi.hoisted(
+  () => ({
+    invokeMock: vi.fn(() => Promise.resolve(undefined)),
+    toastSuccessMock: vi.fn(),
+    sendMessageMutateMock: vi.fn(),
+  })
+)
 
 vi.mock('@/lib/transport', () => ({
   invoke: invokeMock,

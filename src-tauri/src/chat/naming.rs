@@ -358,6 +358,9 @@ fn generate_names(app: &AppHandle, request: &NamingRequest) -> Result<NamingOutp
     if backend == super::types::Backend::Codex {
         return generate_names_codex(app, &prompt, &request.model, request);
     }
+    if backend == super::types::Backend::Cursor {
+        return generate_names_cursor(app, &prompt, &request.model, request);
+    }
 
     let cli_path = resolve_cli_binary(app);
     if !cli_path.exists() {
@@ -538,6 +541,21 @@ fn generate_names_codex(
     log::trace!("Codex generated naming response: {json_str}");
     serde_json::from_str(&json_str)
         .map_err(|e| format!("Failed to parse Codex naming JSON: {e}, raw: {json_str}"))
+}
+
+/// Generate names using Cursor Agent in one-shot mode.
+fn generate_names_cursor(
+    app: &tauri::AppHandle,
+    prompt: &str,
+    model: &str,
+    request: &NamingRequest,
+) -> Result<NamingOutput, String> {
+    log::trace!("Generating names with Cursor Agent using model {model}");
+    let json_str =
+        super::cursor::execute_one_shot_cursor(app, prompt, model, Some(&request.worktree_path))?;
+    log::trace!("Cursor generated naming response: {json_str}");
+    serde_json::from_str(&json_str)
+        .map_err(|e| format!("Failed to parse Cursor naming JSON: {e}, raw: {json_str}"))
 }
 
 fn choose_opencode_model(all_providers: &serde_json::Value) -> Option<(String, String)> {

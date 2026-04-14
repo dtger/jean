@@ -36,6 +36,7 @@ describe('MobileToolbarMenu', () => {
         selectedBackend="claude"
         selectedProvider={null}
         backendModelLabel="Claude · Sonnet"
+        backendModelLabelText="Claude · Sonnet"
         selectedEffortLevel="medium"
         selectedThinkingLevel="think"
         useAdaptiveThinking={false}

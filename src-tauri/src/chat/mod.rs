@@ -2,6 +2,7 @@ pub(crate) mod claude;
 pub(crate) mod codex;
 pub(crate) mod codex_server;
 mod commands;
+pub(crate) mod cursor;
 pub mod detached;
 mod naming;
 pub(crate) mod opencode;

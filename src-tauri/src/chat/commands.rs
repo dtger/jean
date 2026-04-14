@@ -42,6 +42,7 @@ pub(crate) fn resolve_default_backend(app: &AppHandle, worktree_id: Option<&str>
     let mut resolved = match prefs_backend.as_str() {
         "codex" => Backend::Codex,
         "opencode" => Backend::Opencode,
+        "cursor" => Backend::Cursor,
         _ => Backend::Claude,
     };
 
@@ -59,6 +60,7 @@ pub(crate) fn resolve_default_backend(app: &AppHandle, worktree_id: Option<&str>
                     resolved = match pb.as_str() {
                         "codex" => Backend::Codex,
                         "opencode" => Backend::Opencode,
+                        "cursor" => Backend::Cursor,
                         "claude" => Backend::Claude,
                         _ => resolved,
                     };
@@ -80,6 +82,7 @@ pub(crate) fn resolve_magic_prompt_backend(
     if let Some(b) = magic_backend.filter(|s| !s.is_empty()) {
         match b {
             "opencode" => return Backend::Opencode,
+            "cursor" => return Backend::Cursor,
             "codex" => return Backend::Codex,
             "claude" => return Backend::Claude,
             _ => {}
@@ -324,6 +327,7 @@ pub async fn create_session(
     let backend_enum = match backend.as_deref() {
         Some("codex") => Backend::Codex,
         Some("opencode") => Backend::Opencode,
+        Some("cursor") => Backend::Cursor,
         Some("claude") => Backend::Claude,
         _ => {
             // No explicit backend — check project default, then global preference
@@ -333,6 +337,8 @@ pub async fn create_session(
                     resolved = Backend::Codex;
                 } else if prefs.default_backend == "opencode" {
                     resolved = Backend::Opencode;
+                } else if prefs.default_backend == "cursor" {
+                    resolved = Backend::Cursor;
                 }
             }
             // Check project-level override
@@ -350,6 +356,7 @@ pub async fn create_session(
                         resolved = match pb.as_str() {
                             "codex" => Backend::Codex,
                             "opencode" => Backend::Opencode,
+                            "cursor" => Backend::Cursor,
                             "claude" => Backend::Claude,
                             _ => resolved,
                         };
@@ -1546,12 +1553,15 @@ pub async fn send_chat_message(
     let effective_backend = match backend.as_deref() {
         Some("codex") => Backend::Codex,
         Some("opencode") => Backend::Opencode,
+        Some("cursor") => Backend::Cursor,
         Some("claude") => Backend::Claude,
         _ => session_backend.clone(),
     };
     // Override backend based on model string (safety net: model always wins)
     let effective_backend = if let Some(ref m) = model {
-        if crate::is_opencode_model(m) {
+        if crate::is_cursor_model(m) {
+            Backend::Cursor
+        } else if crate::is_opencode_model(m) {
             Backend::Opencode
         } else if crate::is_codex_model(m) {
             Backend::Codex
@@ -1598,6 +1608,9 @@ pub async fn send_chat_message(
     let opencode_session_id = sessions
         .find_session(&session_id)
         .and_then(|s| s.opencode_session_id.clone());
+    let cursor_chat_id = sessions
+        .find_session(&session_id)
+        .and_then(|s| s.cursor_chat_id.clone());
 
     // Start NDJSON run log for crash recovery
     let mut run_log_writer = run_log::start_run(
@@ -1654,6 +1667,7 @@ pub async fn send_chat_message(
                         codex_search_enabled = true;
                     }
                     Backend::Opencode => {}
+                    Backend::Cursor => {}
                 }
             }
         }
@@ -1700,6 +1714,7 @@ pub async fn send_chat_message(
     let thread_codex_thread_id = codex_thread_id.clone();
     let thread_run_id = run_id.clone();
     let thread_opencode_session_id = opencode_session_id.clone();
+    let thread_cursor_chat_id = cursor_chat_id.clone();
     let thread_model = model.clone();
     let thread_execution_mode = execution_mode.clone();
     let thread_thinking_level = thinking_level.clone();
@@ -2446,6 +2461,36 @@ pub async fn send_chat_message(
                     }
                 }
             }
+            Backend::Cursor => match super::cursor::execute_cursor(
+                &thread_app,
+                &thread_session_id,
+                &thread_worktree_id,
+                std::path::Path::new(&thread_working_dir),
+                thread_cursor_chat_id.as_deref(),
+                thread_model.as_deref(),
+                thread_execution_mode.as_deref(),
+                &thread_message,
+                thread_mcp_config.as_deref(),
+                Some(make_pid_callback()),
+            ) {
+                Ok(response) => Ok((
+                    0,
+                    UnifiedResponse {
+                        content: response.content,
+                        resume_id: response.chat_id,
+                        tool_calls: response.tool_calls,
+                        content_blocks: response.content_blocks,
+                        cancelled: response.cancelled,
+                        error_emitted: false,
+                        usage: response.usage,
+                        backend: Backend::Cursor,
+                    },
+                )),
+                Err(e) => {
+                    log::error!("execute_cursor FAILED: {e}");
+                    Err(e)
+                }
+            },
         };
         let _ = tx.send(result);
     });
@@ -2539,11 +2584,16 @@ pub async fn send_chat_message(
     // PID is now persisted via pid_callback immediately after spawn (before tailing).
     // No need to set_pid here — it was already saved for crash recovery.
 
-    // OpenCode runs are HTTP-based (no detached JSONL stream).
-    // Write a synthetic assistant line so history reload can reconstruct content.
+    // OpenCode/Cursor runs are reconstructed in-process rather than tailed from a
+    // detached JSONL stream. Write a synthetic assistant line so history reload can
+    // reconstruct content after the live stream completes.
     // Skip when cancelled: the frontend's save_cancelled_message already persists
-    // SSE content to the same JSONL file, and writing here would duplicate it.
-    if unified_response.backend == Backend::Opencode && !unified_response.cancelled {
+    // cancelled content to the same JSONL file, and writing here would duplicate it.
+    if matches!(
+        unified_response.backend,
+        Backend::Opencode | Backend::Cursor
+    ) && !unified_response.cancelled
+    {
         if let Ok(mut file) = std::fs::OpenOptions::new().append(true).open(&output_file) {
             if !unified_response.content_blocks.is_empty() {
                 let blocks: Vec<serde_json::Value> = unified_response
@@ -2676,6 +2726,9 @@ pub async fn send_chat_message(
                         Backend::Opencode => {
                             session.opencode_session_id = Some(resume_id_for_log.clone());
                         }
+                        Backend::Cursor => {
+                            session.cursor_chat_id = Some(resume_id_for_log.clone());
+                        }
                     }
                 }
                 // Remove user message (undo send) - allows frontend to restore to input field
@@ -2729,10 +2782,13 @@ pub async fn send_chat_message(
         .tool_calls
         .iter()
         .any(|tc| tc.name == "ExitPlanMode" || tc.name == "CodexPlan");
-    let is_plan_mode_with_content = matches!(response_backend, Backend::Opencode)
-        && execution_mode.as_deref() == Some("plan")
-        && has_content
-        && !has_plan_tool;
+    let is_plan_mode_with_content = match response_backend {
+        Backend::Opencode => {
+            execution_mode.as_deref() == Some("plan") && has_content && !has_plan_tool
+        }
+        Backend::Cursor => false, // Plan approval only on real createPlanToolCall / interaction_query
+        _ => false,
+    };
 
     // Create assistant message with tool calls and content blocks
     let assistant_msg_id = Uuid::new_v4().to_string();
@@ -2800,6 +2856,9 @@ pub async fn send_chat_message(
                     }
                     Backend::Opencode => {
                         session.opencode_session_id = Some(resume_id_for_log.clone());
+                    }
+                    Backend::Cursor => {
+                        session.cursor_chat_id = Some(resume_id_for_log.clone());
                     }
                 }
             }
@@ -2881,6 +2940,7 @@ pub async fn clear_session_history(
             session.claude_session_id = None;
             session.codex_thread_id = None;
             session.opencode_session_id = None;
+            session.cursor_chat_id = None;
             session.selected_model = selected_model;
             session.selected_thinking_level = selected_thinking_level;
             session.selected_provider = selected_provider;
@@ -2977,6 +3037,7 @@ pub async fn set_session_backend(
             session.backend = match backend.as_str() {
                 "codex" => super::types::Backend::Codex,
                 "opencode" => super::types::Backend::Opencode,
+                "cursor" => super::types::Backend::Cursor,
                 _ => super::types::Backend::Claude,
             };
             log::trace!("Backend selection saved");
@@ -4410,6 +4471,15 @@ fn execute_summarization_claude(
         });
     }
 
+    if backend == super::types::Backend::Cursor {
+        log::trace!("Executing one-shot Cursor summarization");
+        let json_str = super::cursor::execute_one_shot_cursor(app, prompt, model_str, working_dir)?;
+        return serde_json::from_str(&json_str).map_err(|e| {
+            log::error!("Failed to parse Cursor summarization JSON: {e}, content: {json_str}");
+            format!("Failed to parse summarization response: {e}")
+        });
+    }
+
     let cli_path = resolve_cli_binary(app);
     if !cli_path.exists() {
         return Err("Claude CLI not installed".to_string());
@@ -4697,6 +4767,7 @@ pub async fn get_session_debug_info(
     let sessions = load_sessions(&app, &worktree_path, &worktree_id)?;
     let session = sessions.find_session(&session_id);
     let claude_session_id = session.and_then(|s| s.claude_session_id.clone());
+    let cursor_chat_id = session.and_then(|s| s.cursor_chat_id.clone());
 
     // Try to find Claude CLI's JSONL file
     let claude_jsonl_file = claude_session_id.as_ref().and_then(|sid| {
@@ -4778,6 +4849,7 @@ pub async fn get_session_debug_info(
         runs_dir,
         manifest_file,
         claude_session_id,
+        cursor_chat_id,
         claude_jsonl_file,
         run_log_files,
         total_usage,
@@ -5197,6 +5269,15 @@ fn execute_digest_claude(
         });
     }
 
+    if backend == super::types::Backend::Cursor {
+        log::trace!("Executing one-shot Cursor digest");
+        let json_str = super::cursor::execute_one_shot_cursor(app, prompt, model, working_dir)?;
+        return serde_json::from_str(&json_str).map_err(|e| {
+            log::error!("Failed to parse Cursor digest JSON: {e}, content: {json_str}");
+            format!("Failed to parse digest response: {e}")
+        });
+    }
+
     let cli_path = resolve_cli_binary(app);
     if !cli_path.exists() {
         return Err("Claude CLI not installed".to_string());
@@ -5449,6 +5530,7 @@ pub struct McpHealthResult {
 /// - Claude:   ~/.claude.json (user + local scope) + <worktree>/.mcp.json (project scope)
 /// - Codex:    ~/.codex/config.toml (global) + <worktree>/.codex/config.toml (project)
 /// - OpenCode: ~/.config/opencode/opencode.json (global) + <worktree>/opencode.json (project)
+/// - Cursor:   ~/.cursor/mcp.json (user) + <worktree>/.cursor/mcp.json (project)
 #[tauri::command]
 pub async fn get_mcp_servers(
     backend: Option<String>,
@@ -5458,6 +5540,7 @@ pub async fn get_mcp_servers(
     let servers = match backend.as_deref() {
         Some("codex") => crate::codex_cli::mcp::get_mcp_servers(wt),
         Some("opencode") => crate::opencode_cli::mcp::get_mcp_servers(wt),
+        Some("cursor") => crate::cursor_cli::mcp::get_mcp_servers(wt),
         _ => crate::claude_cli::mcp::get_mcp_servers(wt),
     };
     Ok(servers)
@@ -5512,14 +5595,17 @@ fn parse_mcp_list_output(output: &str) -> std::collections::HashMap<String, McpH
 /// - Claude:   `claude mcp list` (text output)
 /// - Codex:    `codex mcp list --json` (JSON output)
 /// - OpenCode: `opencode mcp list` (text output)
+/// - Cursor:   `cursor-agent mcp list` (text output)
 #[tauri::command]
 pub async fn check_mcp_health(
     app: AppHandle,
     backend: Option<String>,
+    worktree_path: Option<String>,
 ) -> Result<McpHealthResult, String> {
     match backend.as_deref() {
         Some("codex") => check_mcp_health_codex(&app),
         Some("opencode") => check_mcp_health_opencode(&app),
+        Some("cursor") => check_mcp_health_cursor(&app, worktree_path.as_deref()),
         _ => check_mcp_health_claude(&app),
     }
 }
@@ -5600,6 +5686,16 @@ fn check_mcp_health_opencode(app: &AppHandle) -> Result<McpHealthResult, String>
     let stdout = String::from_utf8_lossy(&output.stdout);
     let statuses = parse_mcp_list_output(&stdout);
     log::debug!("MCP health check (OpenCode): {} servers", statuses.len());
+    Ok(McpHealthResult { statuses })
+}
+
+fn check_mcp_health_cursor(
+    app: &AppHandle,
+    worktree_path: Option<&str>,
+) -> Result<McpHealthResult, String> {
+    let statuses =
+        crate::cursor_cli::mcp::check_mcp_health(app, worktree_path.map(std::path::Path::new))?;
+    log::debug!("MCP health check (Cursor): {} servers", statuses.len());
     Ok(McpHealthResult { statuses })
 }
 

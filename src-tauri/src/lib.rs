@@ -12,6 +12,7 @@ mod background_tasks;
 mod chat;
 mod claude_cli;
 mod codex_cli;
+mod cursor_cli;
 mod gh_cli;
 pub mod http_server;
 mod opencode_cli;
@@ -189,11 +190,13 @@ pub struct AppPreferences {
     #[serde(default = "default_execution_mode")]
     pub default_execution_mode: String, // Default execution mode: "plan", "build", or "yolo"
     #[serde(default = "default_backend")]
-    pub default_backend: String, // Default CLI backend: "claude", "codex", or "opencode"
+    pub default_backend: String, // Default CLI backend: "claude", "codex", "opencode", or "cursor"
     #[serde(default = "default_codex_model")]
     pub selected_codex_model: String, // Default Codex model
     #[serde(default = "default_opencode_model")]
     pub selected_opencode_model: String, // Default OpenCode model (provider/model)
+    #[serde(default = "default_cursor_model")]
+    pub selected_cursor_model: String, // Default Cursor model
     #[serde(default = "default_codex_reasoning_effort")]
     pub default_codex_reasoning_effort: String, // Codex reasoning effort: low, medium, high, xhigh
     #[serde(default)]
@@ -400,6 +403,10 @@ fn default_codex_model() -> String {
 
 fn default_opencode_model() -> String {
     "opencode/gpt-5.3-codex".to_string()
+}
+
+fn default_cursor_model() -> String {
+    "cursor/auto".to_string()
 }
 
 fn default_codex_reasoning_effort() -> String {
@@ -1169,10 +1176,18 @@ pub fn is_opencode_model(model: &str) -> bool {
     model.starts_with("opencode/")
 }
 
+/// Returns true if the given model string identifies a Cursor model.
+/// Cursor model IDs are prefixed with "cursor/" (e.g. "cursor/auto").
+pub fn is_cursor_model(model: &str) -> bool {
+    model.starts_with("cursor/")
+}
+
 /// Returns true if the given model string identifies a Codex model.
 /// Codex model IDs contain "codex" or start with "gpt-", but NOT OpenCode models.
 pub fn is_codex_model(model: &str) -> bool {
-    !is_opencode_model(model) && (model.contains("codex") || model.starts_with("gpt-"))
+    !is_opencode_model(model)
+        && !is_cursor_model(model)
+        && (model.contains("codex") || model.starts_with("gpt-"))
 }
 
 /// Per-prompt provider overrides for magic prompts (None = use global default_provider)
@@ -1399,6 +1414,7 @@ impl Default for AppPreferences {
             default_backend: default_backend(),
             selected_codex_model: default_codex_model(),
             selected_opencode_model: default_opencode_model(),
+            selected_cursor_model: default_cursor_model(),
             default_codex_reasoning_effort: default_codex_reasoning_effort(),
             codex_multi_agent_enabled: false,
             codex_max_agent_threads: default_codex_max_agent_threads(),
@@ -3159,6 +3175,12 @@ pub fn run() {
             codex_cli::get_codex_usage,
             codex_cli::get_available_codex_versions,
             codex_cli::install_codex_cli,
+            // Cursor CLI management commands
+            cursor_cli::check_cursor_cli_installed,
+            cursor_cli::detect_cursor_in_path,
+            cursor_cli::check_cursor_cli_auth,
+            cursor_cli::list_cursor_models,
+            cursor_cli::get_cursor_install_command,
             // OpenCode CLI management commands
             opencode_cli::check_opencode_cli_installed,
             opencode_cli::detect_opencode_in_path,

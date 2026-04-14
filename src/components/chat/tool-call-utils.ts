@@ -1,14 +1,5 @@
-import type {
-  ToolCall,
-  ContentBlock,
-  Todo,
-  PlanToolInput,
-} from '@/types/chat'
-import {
-  isTodoWrite,
-  isCollabToolCall,
-  isPlanToolCall,
-} from '@/types/chat'
+import type { ToolCall, ContentBlock, Todo, PlanToolInput } from '@/types/chat'
+import { isTodoWrite, isCollabToolCall, isPlanToolCall } from '@/types/chat'
 
 /** Check if a tool is a task/agent container (Claude CLI uses both names) */
 function isAgentTool(name: string): boolean {
@@ -488,7 +479,7 @@ function extractPlanSectionFromCandidates(candidates: string[]): string | null {
     const extracted = extractPlanSectionFromText(candidate)
     if (extracted) return extracted
   }
- 
+
   return null
 }
 
@@ -555,8 +546,10 @@ export function isDuplicatePlanTextBlock(
   resolvedPlanContent: string | null
 ): boolean {
   if (!resolvedPlanContent) return false
-  // Suppress raw assistant text blocks only when they collapse to the exact
-  // same plan body already shown inside PlanDisplay.
+  // Direct match: the text block IS the plan content (Cursor CLI — no "Plan:" prefix)
+  if (normalizePlanText(text) === normalizePlanText(resolvedPlanContent))
+    return true
+  // "Plan:"-prefixed match: Codex emits intro prose + "Plan:\n..." section
   const extracted = extractPlanSectionFromText(text)
   if (!extracted) return false
   return normalizePlanText(extracted) === normalizePlanText(resolvedPlanContent)
@@ -570,11 +563,19 @@ export function getPlanTextBlockIndicesToHide(
   if (!contentBlocks?.length || !resolvedPlanContent) return hidden
 
   const textBlocks = contentBlocks.flatMap((block, index) =>
-    block.type === 'text' && block.text.trim() ? [{ index, text: block.text }] : []
+    block.type === 'text' && block.text.trim()
+      ? [{ index, text: block.text }]
+      : []
   )
   if (textBlocks.length === 0) return hidden
 
   const joinedText = textBlocks.map(block => block.text).join('')
+  // Direct match: all text blocks together ARE the plan (Cursor CLI — no "Plan:" prefix)
+  if (
+    normalizePlanText(joinedText) === normalizePlanText(resolvedPlanContent)
+  ) {
+    return new Set(textBlocks.map(block => block.index))
+  }
   const extracted = extractPlanSectionFromText(joinedText)
   if (!extracted) return hidden
   if (normalizePlanText(extracted) !== normalizePlanText(resolvedPlanContent)) {

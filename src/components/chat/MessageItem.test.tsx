@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@/test/test-utils'
 import { MessageItem } from './MessageItem'
-import type { ChatMessage, ReviewFinding, QuestionAnswer, Question } from '@/types/chat'
+import type {
+  ChatMessage,
+  ReviewFinding,
+  QuestionAnswer,
+  Question,
+} from '@/types/chat'
 
 describe('MessageItem', () => {
   const noopQuestionAnswer = (
@@ -219,6 +224,39 @@ describe('MessageItem', () => {
     expect(screen.getByText('Plan:')).toBeVisible()
     expect(screen.getAllByText('Implement changes')).toHaveLength(1)
     expect(screen.getAllByText('Add tests')).toHaveLength(1)
+  })
+
+  it('renders intro text from message content when persisted content blocks only contain plan tools', () => {
+    render(
+      <MessageItem
+        {...baseProps}
+        message={{
+          ...baseMessage,
+          content: 'I’ll draft a concise, actionable plan.',
+          tool_calls: [
+            {
+              id: 'enter-plan-1',
+              name: 'EnterPlanMode',
+              input: { title: 'Plan mode instructions', instructions: [] },
+            },
+            {
+              id: 'plan-1',
+              name: 'ExitPlanMode',
+              input: { plan: 'Plan:\n- Inspect birds' },
+            },
+          ],
+          content_blocks: [
+            { type: 'tool_use', tool_call_id: 'enter-plan-1' },
+            { type: 'tool_use', tool_call_id: 'plan-1' },
+          ],
+        }}
+      />
+    )
+
+    expect(
+      screen.getByText('I’ll draft a concise, actionable plan.')
+    ).toBeVisible()
+    expect(screen.getByText('Inspect birds')).toBeVisible()
   })
 
   it('renders prose before the fallback plan above tool calls', () => {

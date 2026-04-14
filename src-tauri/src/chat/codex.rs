@@ -10,10 +10,9 @@
 use super::claude::CancelledEvent;
 use super::types::{
     CodexCommandAction, CodexCommandApprovalRequest, CodexCommandApprovalRequestEvent,
-    CodexDynamicToolCallRequest, CodexDynamicToolCallRequestEvent, CodexMcpElicitationRequest,
-    CodexMcpElicitationRequestEvent, CodexNetworkApprovalContext, CodexNetworkPolicyAmendment,
-    CodexPermissionRequest, CodexPermissionRequestEvent, CodexUserInputRequest,
-    CodexUserInputRequestEvent, ContentBlock, ToolCall, UsageData,
+    CodexDynamicToolCallRequest, CodexDynamicToolCallRequestEvent, CodexNetworkApprovalContext,
+    CodexNetworkPolicyAmendment, CodexPermissionRequest, CodexPermissionRequestEvent,
+    CodexUserInputRequest, CodexUserInputRequestEvent, ContentBlock, ToolCall, UsageData,
 };
 use crate::http_server::EmitExt;
 
@@ -3506,6 +3505,7 @@ mod tests {
             usage: None,
             codex_thread_id: None,
             codex_turn_id: None,
+            cursor_chat_id: None,
         };
 
         let message = parse_codex_run_to_message(&lines, &run).expect("message");
@@ -3546,6 +3546,7 @@ mod tests {
             usage: None,
             codex_thread_id: None,
             codex_turn_id: None,
+            cursor_chat_id: None,
         };
 
         let message = parse_codex_run_to_message(&lines, &run).expect("message");
@@ -3598,6 +3599,7 @@ mod tests {
             usage: None,
             codex_thread_id: None,
             codex_turn_id: None,
+            cursor_chat_id: None,
         };
 
         let message = parse_codex_run_to_message(&lines, &run).expect("message");
@@ -3665,6 +3667,7 @@ mod tests {
             usage: None,
             codex_thread_id: None,
             codex_turn_id: None,
+            cursor_chat_id: None,
         };
 
         let message = parse_codex_run_to_message(&lines, &run).expect("message");
@@ -3717,6 +3720,7 @@ mod tests {
             usage: None,
             codex_thread_id: None,
             codex_turn_id: None,
+            cursor_chat_id: None,
         };
 
         let message = parse_codex_run_to_message(&lines, &run).expect("message");
@@ -3774,6 +3778,7 @@ mod tests {
             usage: None,
             codex_thread_id: None,
             codex_turn_id: None,
+            cursor_chat_id: None,
         };
 
         let message = parse_codex_run_to_message(&lines, &run).expect("message");
@@ -3812,6 +3817,7 @@ mod tests {
             usage: None,
             codex_thread_id: None,
             codex_turn_id: None,
+            cursor_chat_id: None,
         };
 
         let message = parse_codex_run_to_message(&lines, &run).expect("message");

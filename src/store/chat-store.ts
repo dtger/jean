@@ -126,8 +126,8 @@ interface ChatUIState {
   // Effort level per session (for Opus 4.6 adaptive thinking)
   effortLevels: Record<string, EffortLevel>
 
-  // Selected backend per session (claude, codex, or opencode)
-  selectedBackends: Record<string, 'claude' | 'codex' | 'opencode'>
+  // Selected backend per session (claude, codex, opencode, or cursor)
+  selectedBackends: Record<string, 'claude' | 'codex' | 'opencode' | 'cursor'>
 
   // Selected model per session (for tracking what model was used)
   selectedModels: Record<string, string>
@@ -369,7 +369,7 @@ interface ChatUIState {
   // Actions - Selected backend (session-based)
   setSelectedBackend: (
     sessionId: string,
-    backend: 'claude' | 'codex' | 'opencode'
+    backend: 'claude' | 'codex' | 'opencode' | 'cursor'
   ) => void
 
   // Actions - Selected model (session-based)

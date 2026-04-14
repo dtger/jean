@@ -14,6 +14,7 @@ import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
+import { BackendLabel } from '@/components/ui/backend-label'
 import { Input } from '@/components/ui/input'
 import {
   Command,
@@ -58,10 +59,19 @@ import {
   useOpenCodePathDetection,
 } from '@/services/opencode-cli'
 import { useUIStore } from '@/store/ui-store'
+import {
+  getCursorInstallCommand,
+  useCursorCliStatus,
+  useCursorCliAuth,
+  useCursorPathDetection,
+  useAvailableCursorModels,
+  cursorCliQueryKeys,
+} from '@/services/cursor-cli'
 import type { ClaudeAuthStatus } from '@/types/claude-cli'
 import type { GhAuthStatus } from '@/types/gh-cli'
 import type { CodexAuthStatus } from '@/types/codex-cli'
 import type { OpenCodeAuthStatus } from '@/types/opencode-cli'
+import type { CursorAuthStatus } from '@/types/cursor-cli'
 import {
   Select,
   SelectContent,
@@ -104,6 +114,7 @@ import {
   type ClaudeModel,
   type CodexModel,
   type CodexReasoningEffort,
+  type CursorModel,
   type CliBackend,
   type TerminalApp,
   type EditorApp,
@@ -111,8 +122,14 @@ import {
   openInDefaultOptions,
   type OpenInDefault,
 } from '@/types/preferences'
-import { OPENCODE_MODEL_OPTIONS } from '@/components/chat/toolbar/toolbar-options'
-import { formatOpencodeModelLabel } from '@/components/chat/toolbar/toolbar-utils'
+import {
+  CURSOR_MODEL_OPTIONS,
+  OPENCODE_MODEL_OPTIONS,
+} from '@/components/chat/toolbar/toolbar-options'
+import {
+  formatCursorModelLabel,
+  formatOpencodeModelLabel,
+} from '@/components/chat/toolbar/toolbar-utils'
 import { playNotificationSound } from '@/lib/sounds'
 import type { ThinkingLevel, EffortLevel } from '@/types/chat'
 import { isNativeApp } from '@/lib/environment'
@@ -201,6 +218,7 @@ export const GeneralPane: React.FC = () => {
   const { data: codexPathDetection } = useCodexPathDetection()
   const { data: opencodePathDetection } = useOpenCodePathDetection()
   const { data: ghPathDetection } = useGhPathDetection()
+  const { data: cursorPathDetection } = useCursorPathDetection()
 
   // CLI status hooks
   const { data: cliStatus, isLoading: isCliLoading } = useClaudeCliStatus()
@@ -213,6 +231,8 @@ export const GeneralPane: React.FC = () => {
     !!claudeLatestStable &&
     isNewerVersion(claudeLatestStable.version, cliStatus.version)
   const { data: ghStatus, isLoading: isGhLoading } = useGhCliStatus()
+  const { data: cursorStatus, isLoading: isCursorLoading } =
+    useCursorCliStatus()
   const isGhPathSource = preferences?.gh_cli_source === 'path'
   const { data: ghVersions, isLoading: isGhVersionsLoading } =
     useAvailableGhVersions({ enabled: isGhPathSource && !!ghStatus?.installed })
@@ -261,8 +281,16 @@ export const GeneralPane: React.FC = () => {
     useOpenCodeCliAuth({
       enabled: !!opencodeStatus?.installed,
     })
+  const { data: cursorAuth, isLoading: isCursorAuthLoading } = useCursorCliAuth(
+    {
+      enabled: !!cursorStatus?.installed,
+    }
+  )
   const { data: availableOpencodeModels } = useAvailableOpencodeModels({
     enabled: !!opencodeStatus?.installed,
+  })
+  const { data: availableCursorModels } = useAvailableCursorModels({
+    enabled: !!cursorStatus?.installed,
   })
 
   // Re-check CLI status when the source preference changes (handles initial load
@@ -301,13 +329,27 @@ export const GeneralPane: React.FC = () => {
     queryClient,
   ])
 
+  useEffect(() => {
+    if (!preferences?.build_backend) return
+    const backend = preferences.build_backend
+    if (backend === 'cursor' && !cursorStatus?.installed) {
+      patchPreferences.mutate({
+        build_backend: null,
+        build_model: null,
+        build_thinking_level: null,
+      })
+    }
+  }, [patchPreferences, preferences?.build_backend, cursorStatus?.installed])
+
   // Track which auth check is in progress (for manual refresh)
   const [checkingClaudeAuth, setCheckingClaudeAuth] = useState(false)
   const [checkingGhAuth, setCheckingGhAuth] = useState(false)
   const [checkingCodexAuth, setCheckingCodexAuth] = useState(false)
   const [checkingOpenCodeAuth, setCheckingOpenCodeAuth] = useState(false)
+  const [checkingCursorAuth, setCheckingCursorAuth] = useState(false)
   const [openCodeModelPopoverOpen, setOpenCodeModelPopoverOpen] =
     useState(false)
+  const [cursorModelPopoverOpen, setCursorModelPopoverOpen] = useState(false)
   const [buildModelPopoverOpen, setBuildModelPopoverOpen] = useState(false)
   const [yoloModelPopoverOpen, setYoloModelPopoverOpen] = useState(false)
 
@@ -488,16 +530,24 @@ export const GeneralPane: React.FC = () => {
   const claudeInstalled = cliStatus?.installed
   const codexInstalled = codexStatus?.installed
   const opencodeInstalled = opencodeStatus?.installed
+  const cursorInstalled = cursorStatus?.installed
   const effectiveBackend = useMemo(() => {
     const installed: Record<string, boolean | undefined> = {
       claude: claudeInstalled,
       codex: codexInstalled,
       opencode: opencodeInstalled,
+      cursor: cursorInstalled,
     }
     if (installed[stored]) return stored
     const first = backendOptions.find(o => installed[o.value])
     return first?.value ?? stored
-  }, [stored, claudeInstalled, codexInstalled, opencodeInstalled])
+  }, [
+    stored,
+    claudeInstalled,
+    codexInstalled,
+    opencodeInstalled,
+    cursorInstalled,
+  ])
 
   const handleCodexModelChange = (value: CodexModel) => {
     if (preferences) {
@@ -516,6 +566,12 @@ export const GeneralPane: React.FC = () => {
   const handleOpenCodeModelChange = (value: string) => {
     if (preferences) {
       patchPreferences.mutate({ selected_opencode_model: value })
+    }
+  }
+
+  const handleCursorModelChange = (value: CursorModel) => {
+    if (preferences) {
+      patchPreferences.mutate({ selected_cursor_model: value })
     }
   }
 
@@ -538,6 +594,26 @@ export const GeneralPane: React.FC = () => {
   const selectedOpenCodeModelLabel =
     openCodeModelOptions.find(option => option.value === selectedOpenCodeModel)
       ?.label ?? formatOpenCodeModelLabelForSettings(selectedOpenCodeModel)
+  const selectedCursorModel =
+    preferences?.selected_cursor_model ?? 'cursor/auto'
+  const cursorModelOptions: { value: CursorModel; label: string }[] = (
+    availableCursorModels?.length
+      ? availableCursorModels.map(model => ({
+          value: `cursor/${model.id}` as CursorModel,
+          label: model.label || formatCursorModelLabel(model.id),
+        }))
+      : (CURSOR_MODEL_OPTIONS as { value: CursorModel; label: string }[])
+  ).map(option => ({
+    value: option.value,
+    label: option.label || formatCursorModelLabel(option.value),
+  }))
+  const selectedCursorModelLabel =
+    cursorModelOptions.find(option => option.value === selectedCursorModel)
+      ?.label ?? formatCursorModelLabel(selectedCursorModel)
+  const buildBackendOptions = backendOptions
+  const cursorAuthMessage = cursorAuth?.timed_out
+    ? 'Auth check timed out. Try again or run login manually.'
+    : cursorAuth?.error
 
   const handleCodexMultiAgentToggle = (enabled: boolean) => {
     if (preferences) {
@@ -750,6 +826,55 @@ export const GeneralPane: React.FC = () => {
     if (!opencodeStatus?.path) return
     openCliLoginModal('opencode', opencodeStatus.path, ['auth', 'login'])
   }, [opencodeStatus?.path, openCliLoginModal])
+
+  const handleCursorLogin = useCallback(async () => {
+    if (!cursorStatus?.path) return
+
+    setCheckingCursorAuth(true)
+    try {
+      await queryClient.invalidateQueries({
+        queryKey: cursorCliQueryKeys.auth(),
+      })
+      const result = await queryClient.fetchQuery<CursorAuthStatus>({
+        queryKey: cursorCliQueryKeys.auth(),
+      })
+
+      if (result?.authenticated) {
+        toast.success('Cursor CLI is already authenticated')
+        return
+      }
+    } finally {
+      setCheckingCursorAuth(false)
+    }
+
+    openCliLoginModal('cursor', cursorStatus.path, ['login'])
+  }, [cursorStatus?.path, openCliLoginModal, queryClient])
+
+  const handleCursorRelogin = useCallback(() => {
+    if (!cursorStatus?.path) return
+    openCliLoginModal('cursor', cursorStatus.path, ['login'])
+  }, [cursorStatus?.path, openCliLoginModal])
+
+  const handleCursorUpdate = useCallback(() => {
+    if (!cursorStatus?.path) return
+    openCliLoginModal('cursor', cursorStatus.path, ['update'], 'update')
+  }, [cursorStatus?.path, openCliLoginModal])
+
+  const handleCursorInstall = useCallback(async () => {
+    try {
+      const installCommand = await getCursorInstallCommand()
+      openCliLoginModal(
+        'cursor',
+        installCommand.command,
+        installCommand.args,
+        'install'
+      )
+    } catch (error) {
+      toast.error('Failed to prepare Cursor Agent install command', {
+        description: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }, [openCliLoginModal])
 
   const handleCopyPath = useCallback((path: string | null | undefined) => {
     if (!path) return
@@ -1355,6 +1480,122 @@ export const GeneralPane: React.FC = () => {
         </SettingsSection>
       )}
 
+      {isNativeApp() && (
+        <SettingsSection
+          title={
+            <span className="inline-flex items-center gap-2">
+              <BackendLabel backend="cursor" />
+              <span>CLI</span>
+            </span>
+          }
+          actions={
+            cursorStatus?.installed ? (
+              checkingCursorAuth || isCursorAuthLoading ? (
+                <span className="text-sm text-muted-foreground flex items-center gap-2">
+                  <Loader2 className="size-3 animate-spin" />
+                  Checking...
+                </span>
+              ) : cursorAuth?.authenticated ? (
+                <span className="text-sm text-muted-foreground flex items-center gap-2">
+                  Logged in
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCursorRelogin}
+                  >
+                    Relogin
+                  </Button>
+                </span>
+              ) : (
+                <Button variant="outline" size="sm" onClick={handleCursorLogin}>
+                  Login
+                </Button>
+              )
+            ) : (
+              <Button variant="outline" size="sm" onClick={handleCursorInstall}>
+                Install
+              </Button>
+            )
+          }
+        >
+          <div className="space-y-4">
+            <InlineField
+              label={cursorStatus?.installed ? 'Version' : 'Status'}
+              description={
+                cursorStatus?.installed
+                  ? 'Cursor Agent can be logged in and self-updated from Jean.'
+                  : 'Cursor Agent can be installed from Jean or discovered from your system PATH.'
+              }
+            >
+              {isCursorLoading ? (
+                <Loader2 className="size-4 animate-spin text-muted-foreground" />
+              ) : cursorStatus?.installed ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm">
+                    {cursorStatus.version ?? 'Installed'}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCursorUpdate}
+                  >
+                    Run self-update
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">
+                    Not found in PATH
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCursorInstall}
+                  >
+                    Install now
+                  </Button>
+                </div>
+              )}
+            </InlineField>
+            {cursorStatus?.installed &&
+              !cursorAuth?.authenticated &&
+              cursorAuthMessage && (
+                <div className="text-xs text-muted-foreground">
+                  {cursorAuthMessage}
+                </div>
+              )}
+            {(cursorStatus?.installed || cursorPathDetection?.found) && (
+              <InlineField
+                label="Source"
+                description={
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() =>
+                          handleCopyPath(
+                            cursorPathDetection?.path ?? cursorStatus?.path
+                          )
+                        }
+                        className="text-left hover:underline cursor-pointer"
+                      >
+                        {cursorPathDetection?.path ??
+                          cursorStatus?.path ??
+                          'System PATH'}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>Click to copy path</TooltipContent>
+                  </Tooltip>
+                }
+              >
+                <span className="text-sm text-muted-foreground">
+                  System PATH
+                </span>
+              </InlineField>
+            )}
+          </div>
+        </SettingsSection>
+      )}
+
       <SettingsSection title="Defaults">
         <div className="space-y-4">
           <InlineField
@@ -1375,11 +1616,13 @@ export const GeneralPane: React.FC = () => {
                       ? cliStatus?.installed
                       : option.value === 'codex'
                         ? codexStatus?.installed
-                        : opencodeStatus?.installed
+                        : option.value === 'opencode'
+                          ? opencodeStatus?.installed
+                          : cursorStatus?.installed
                   )
                   .map(option => (
                     <SelectItem key={option.value} value={option.value}>
-                      {option.label}
+                      <BackendLabel backend={option.value} />
                     </SelectItem>
                   ))}
               </SelectContent>
@@ -1422,9 +1665,9 @@ export const GeneralPane: React.FC = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="default">Default</SelectItem>
-                    {backendOptions.map(option => (
+                    {buildBackendOptions.map(option => (
                       <SelectItem key={option.value} value={option.value}>
-                        {option.label}
+                        <BackendLabel backend={option.value} />
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1481,6 +1724,78 @@ export const GeneralPane: React.FC = () => {
                               />
                             </CommandItem>
                             {openCodeModelOptions.map(option => (
+                              <CommandItem
+                                key={option.value}
+                                value={`${option.label} ${option.value}`}
+                                onSelect={() => {
+                                  handleBuildModelChange(option.value)
+                                  setBuildModelPopoverOpen(false)
+                                }}
+                              >
+                                <span className="truncate">{option.label}</span>
+                                <Check
+                                  className={cn(
+                                    'ml-auto h-4 w-4',
+                                    preferences?.build_model === option.value
+                                      ? 'opacity-100'
+                                      : 'opacity-0'
+                                  )}
+                                />
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                ) : preferences?.build_backend === 'cursor' ? (
+                  <Popover
+                    open={buildModelPopoverOpen}
+                    onOpenChange={setBuildModelPopoverOpen}
+                  >
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={buildModelPopoverOpen}
+                        className="w-full justify-between"
+                      >
+                        <span className="truncate text-left">
+                          {preferences?.build_model
+                            ? (cursorModelOptions.find(
+                                o => o.value === preferences.build_model
+                              )?.label ??
+                              formatCursorModelLabel(preferences.build_model))
+                            : 'Default model'}
+                        </span>
+                        <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-80 p-0">
+                      <Command>
+                        <CommandInput placeholder="Search models..." />
+                        <CommandList onWheel={e => e.stopPropagation()}>
+                          <CommandEmpty>No models found.</CommandEmpty>
+                          <CommandGroup>
+                            <CommandItem
+                              value="default"
+                              onSelect={() => {
+                                handleBuildModelChange('default')
+                                setBuildModelPopoverOpen(false)
+                              }}
+                            >
+                              Default model
+                              <Check
+                                className={cn(
+                                  'ml-auto h-4 w-4',
+                                  !preferences?.build_model ||
+                                    preferences.build_model === 'default'
+                                    ? 'opacity-100'
+                                    : 'opacity-0'
+                                )}
+                              />
+                            </CommandItem>
+                            {cursorModelOptions.map(option => (
                               <CommandItem
                                 key={option.value}
                                 value={`${option.label} ${option.value}`}
@@ -1580,7 +1895,7 @@ export const GeneralPane: React.FC = () => {
                     <SelectItem value="default">Default</SelectItem>
                     {backendOptions.map(option => (
                       <SelectItem key={option.value} value={option.value}>
-                        {option.label}
+                        <BackendLabel backend={option.value} />
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1637,6 +1952,78 @@ export const GeneralPane: React.FC = () => {
                               />
                             </CommandItem>
                             {openCodeModelOptions.map(option => (
+                              <CommandItem
+                                key={option.value}
+                                value={`${option.label} ${option.value}`}
+                                onSelect={() => {
+                                  handleYoloModelChange(option.value)
+                                  setYoloModelPopoverOpen(false)
+                                }}
+                              >
+                                <span className="truncate">{option.label}</span>
+                                <Check
+                                  className={cn(
+                                    'ml-auto h-4 w-4',
+                                    preferences?.yolo_model === option.value
+                                      ? 'opacity-100'
+                                      : 'opacity-0'
+                                  )}
+                                />
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                ) : preferences?.yolo_backend === 'cursor' ? (
+                  <Popover
+                    open={yoloModelPopoverOpen}
+                    onOpenChange={setYoloModelPopoverOpen}
+                  >
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={yoloModelPopoverOpen}
+                        className="w-full justify-between"
+                      >
+                        <span className="truncate text-left">
+                          {preferences?.yolo_model
+                            ? (cursorModelOptions.find(
+                                o => o.value === preferences.yolo_model
+                              )?.label ??
+                              formatCursorModelLabel(preferences.yolo_model))
+                            : 'Default model'}
+                        </span>
+                        <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-80 p-0">
+                      <Command>
+                        <CommandInput placeholder="Search models..." />
+                        <CommandList onWheel={e => e.stopPropagation()}>
+                          <CommandEmpty>No models found.</CommandEmpty>
+                          <CommandGroup>
+                            <CommandItem
+                              value="default"
+                              onSelect={() => {
+                                handleYoloModelChange('default')
+                                setYoloModelPopoverOpen(false)
+                              }}
+                            >
+                              Default model
+                              <Check
+                                className={cn(
+                                  'ml-auto h-4 w-4',
+                                  !preferences?.yolo_model ||
+                                    preferences.yolo_model === 'default'
+                                    ? 'opacity-100'
+                                    : 'opacity-0'
+                                )}
+                              />
+                            </CommandItem>
+                            {cursorModelOptions.map(option => (
                               <CommandItem
                                 key={option.value}
                                 value={`${option.label} ${option.value}`}
@@ -1934,6 +2321,73 @@ export const GeneralPane: React.FC = () => {
                             className={cn(
                               'ml-auto h-4 w-4',
                               selectedOpenCodeModel === option.value
+                                ? 'opacity-100'
+                                : 'opacity-0'
+                            )}
+                          />
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+          </InlineField>
+
+          {/* Cursor subsection */}
+          <div className="pt-2">
+            <div className="mb-3 text-sm font-semibold text-foreground/80">
+              <BackendLabel backend="cursor" />
+            </div>
+          </div>
+
+          <InlineField
+            label="Model"
+            description="Cursor model for AI assistance"
+          >
+            <Popover
+              open={cursorModelPopoverOpen}
+              onOpenChange={setCursorModelPopoverOpen}
+            >
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={cursorModelPopoverOpen}
+                  aria-label="Select Cursor model"
+                  className="w-80 max-w-full justify-between"
+                >
+                  <span className="max-w-[16rem] truncate text-left">
+                    {selectedCursorModelLabel}
+                  </span>
+                  <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                className="w-[var(--radix-popover-trigger-width)] p-0"
+              >
+                <Command>
+                  <CommandInput placeholder="Search models..." />
+                  <CommandList onWheel={e => e.stopPropagation()}>
+                    <CommandEmpty>No models found.</CommandEmpty>
+                    <CommandGroup>
+                      {cursorModelOptions.map(option => (
+                        <CommandItem
+                          key={option.value}
+                          value={`${option.label} ${option.value}`}
+                          onSelect={() => {
+                            handleCursorModelChange(option.value)
+                            setCursorModelPopoverOpen(false)
+                          }}
+                        >
+                          <span className="max-w-[18rem] truncate">
+                            {option.label}
+                          </span>
+                          <Check
+                            className={cn(
+                              'ml-auto h-4 w-4',
+                              selectedCursorModel === option.value
                                 ? 'opacity-100'
                                 : 'opacity-0'
                             )}

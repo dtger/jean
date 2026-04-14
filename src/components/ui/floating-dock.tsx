@@ -216,7 +216,7 @@ export function FloatingDock() {
 
   const activeBackend = (selectedBackend ??
     preferences?.default_backend ??
-    'claude') as 'claude' | 'codex' | 'opencode'
+    'claude') as 'claude' | 'codex' | 'opencode' | 'cursor'
 
   const codexStatus = useCodexCliStatus()
   const codexAuth = useCodexCliAuth({

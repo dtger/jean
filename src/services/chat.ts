@@ -684,7 +684,8 @@ export function useCloseSession() {
       // Switch to the new active session — but only if the caller hasn't already
       // picked a neighbor (e.g. SessionChatModal sets it based on visual tab order)
       if (newActiveId) {
-        const currentActive = useChatStore.getState().activeSessionIds[worktreeId]
+        const currentActive =
+          useChatStore.getState().activeSessionIds[worktreeId]
         if (!currentActive || currentActive === sessionId) {
           useChatStore.getState().setActiveSession(worktreeId, newActiveId)
         }
@@ -748,7 +749,8 @@ export function useArchiveSession() {
       // Switch to the new active session — but only if the caller hasn't already
       // picked a neighbor (e.g. SessionChatModal sets it based on visual tab order)
       if (newActiveId) {
-        const currentActive = useChatStore.getState().activeSessionIds[worktreeId]
+        const currentActive =
+          useChatStore.getState().activeSessionIds[worktreeId]
         if (!currentActive || currentActive === sessionId) {
           useChatStore.getState().setActiveSession(worktreeId, newActiveId)
         }

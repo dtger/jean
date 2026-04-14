@@ -6000,6 +6000,22 @@ fn generate_pr_content_from_inputs(
         return Ok(response);
     }
 
+    if backend == crate::chat::types::Backend::Cursor {
+        log::trace!("Generating PR content with Cursor");
+        let json_str = crate::chat::cursor::execute_one_shot_cursor(
+            app,
+            &prompt,
+            model_str,
+            Some(std::path::Path::new(repo_path)),
+        )?;
+        let mut response: PrContentResponse = serde_json::from_str(&json_str).map_err(|e| {
+            log::error!("Failed to parse Cursor PR content JSON: {e}, content: {json_str}");
+            format!("Failed to parse PR content: {e}")
+        })?;
+        response.body = augment_pr_references_in_body(&response.body, related_pr_issue_refs);
+        return Ok(response);
+    }
+
     log::trace!("Generating PR content with Claude CLI (JSON schema)");
 
     let cli_path = resolve_cli_binary(app);
@@ -6591,6 +6607,16 @@ fn generate_commit_message(
         });
     }
 
+    if backend == crate::chat::types::Backend::Cursor {
+        log::trace!("Generating commit message with Cursor");
+        let json_str =
+            crate::chat::cursor::execute_one_shot_cursor(app, prompt, model_str, working_dir)?;
+        return serde_json::from_str(&json_str).map_err(|e| {
+            log::error!("Failed to parse Cursor commit message JSON: {e}, content: {json_str}");
+            format!("Failed to parse commit message: {e}")
+        });
+    }
+
     log::trace!("Generating commit message with Claude CLI (JSON schema)");
 
     let cli_path = resolve_cli_binary(app);
@@ -7031,6 +7057,16 @@ fn generate_review(
         let json_str = execute_codex_review(app, prompt, model_str, working_dir, review_run_id)?;
         return serde_json::from_str(&json_str).map_err(|e| {
             log::error!("Failed to parse Codex review JSON: {e}, content: {json_str}");
+            format!("Failed to parse review: {e}")
+        });
+    }
+
+    if backend == crate::chat::types::Backend::Cursor {
+        log::trace!("Running code review with Cursor");
+        let json_str =
+            crate::chat::cursor::execute_one_shot_cursor(app, prompt, model_str, working_dir)?;
+        return serde_json::from_str(&json_str).map_err(|e| {
+            log::error!("Failed to parse Cursor review JSON: {e}, content: {json_str}");
             format!("Failed to parse review: {e}")
         });
     }
@@ -7556,6 +7592,20 @@ fn generate_release_notes_content(
         )?;
         return serde_json::from_str(&json_str).map_err(|e| {
             log::error!("Failed to parse Codex release notes JSON: {e}, content: {json_str}");
+            format!("Failed to parse release notes: {e}")
+        });
+    }
+
+    if backend == crate::chat::types::Backend::Cursor {
+        log::trace!("Generating release notes with Cursor");
+        let json_str = crate::chat::cursor::execute_one_shot_cursor(
+            app,
+            &prompt,
+            model_str,
+            Some(std::path::Path::new(project_path)),
+        )?;
+        return serde_json::from_str(&json_str).map_err(|e| {
+            log::error!("Failed to parse Cursor release notes JSON: {e}, content: {json_str}");
             format!("Failed to parse release notes: {e}")
         });
     }

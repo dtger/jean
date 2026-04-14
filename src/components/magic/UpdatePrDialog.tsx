@@ -111,53 +111,56 @@ export function UpdatePrDialog() {
     }
   }, [updatePrModalOpen, worktreePath])
 
-  const generateContentForPr = useCallback(async (prNumberValue: number) => {
-    if (!worktreePath) return
+  const generateContentForPr = useCallback(
+    async (prNumberValue: number) => {
+      if (!worktreePath) return
 
-    const parsedPrNumber = Number(prNumberValue)
-    if (!Number.isInteger(parsedPrNumber) || parsedPrNumber <= 0) {
-      setErrorMessage('Enter a valid pull request number.')
-      return
-    }
+      const parsedPrNumber = Number(prNumberValue)
+      if (!Number.isInteger(parsedPrNumber) || parsedPrNumber <= 0) {
+        setErrorMessage('Enter a valid pull request number.')
+        return
+      }
 
-    setErrorMessage(null)
-    setPrNumberInput(String(parsedPrNumber))
-    setPhase('generate')
-    setIsGenerating(true)
+      setErrorMessage(null)
+      setPrNumberInput(String(parsedPrNumber))
+      setPhase('generate')
+      setIsGenerating(true)
 
-    const activeSessionId = selectedWorktreeId
-      ? useChatStore.getState().activeSessionIds[selectedWorktreeId]
-      : undefined
+      const activeSessionId = selectedWorktreeId
+        ? useChatStore.getState().activeSessionIds[selectedWorktreeId]
+        : undefined
 
-    try {
-      const result = await invoke<UpdatePrResponse>(
-        'generate_pr_update_content',
-        {
-          worktreePath,
-          prNumber: parsedPrNumber,
-          sessionId: activeSessionId ?? null,
-          customPrompt: preferences?.magic_prompts?.pr_content,
-          model: preferences?.magic_prompt_models?.pr_content_model,
-          customProfileName: resolveMagicPromptProvider(
-            preferences?.magic_prompt_providers,
-            'pr_content_provider',
-            preferences?.default_provider
-          ),
-          reasoningEffort:
-            preferences?.magic_prompt_efforts?.pr_content_effort ?? null,
-        }
-      )
-      setSelectedPrNumber(result.pr_number)
-      setGeneratedTitle(result.title)
-      setGeneratedBody(result.body)
-      setPhase('result')
-    } catch (error) {
-      setErrorMessage(String(error))
-      setPhase('select-pr')
-    } finally {
-      setIsGenerating(false)
-    }
-  }, [worktreePath, selectedWorktreeId, preferences])
+      try {
+        const result = await invoke<UpdatePrResponse>(
+          'generate_pr_update_content',
+          {
+            worktreePath,
+            prNumber: parsedPrNumber,
+            sessionId: activeSessionId ?? null,
+            customPrompt: preferences?.magic_prompts?.pr_content,
+            model: preferences?.magic_prompt_models?.pr_content_model,
+            customProfileName: resolveMagicPromptProvider(
+              preferences?.magic_prompt_providers,
+              'pr_content_provider',
+              preferences?.default_provider
+            ),
+            reasoningEffort:
+              preferences?.magic_prompt_efforts?.pr_content_effort ?? null,
+          }
+        )
+        setSelectedPrNumber(result.pr_number)
+        setGeneratedTitle(result.title)
+        setGeneratedBody(result.body)
+        setPhase('result')
+      } catch (error) {
+        setErrorMessage(String(error))
+        setPhase('select-pr')
+      } finally {
+        setIsGenerating(false)
+      }
+    },
+    [worktreePath, selectedWorktreeId, preferences]
+  )
 
   const generateContent = useCallback(async () => {
     const parsedPrNumber = Number(prNumberInput.trim())
@@ -249,12 +252,10 @@ export function UpdatePrDialog() {
               </label>
               <Input
                 value={prNumberInput}
-                onChange={e =>
-                  {
-                    setPrNumberInput(e.target.value.replace(/[^\d]/g, ''))
-                    if (errorMessage) setErrorMessage(null)
-                  }
-                }
+                onChange={e => {
+                  setPrNumberInput(e.target.value.replace(/[^\d]/g, ''))
+                  if (errorMessage) setErrorMessage(null)
+                }}
                 placeholder="e.g. 9521"
                 className="text-base md:text-sm"
                 onKeyDown={e => {
@@ -422,13 +423,13 @@ export function UpdatePrDialog() {
               <Button
                 size="sm"
                 onClick={handleUpdatePr}
-                disabled={isUpdating || !generatedTitle.trim() || !selectedPrNumber}
+                disabled={
+                  isUpdating || !generatedTitle.trim() || !selectedPrNumber
+                }
                 className="max-sm:w-full"
               >
                 <Upload className="h-3.5 w-3.5 mr-1.5" />
-                {isUpdating
-                  ? 'Updating...'
-                  : `Update PR #${selectedPrNumber}`}
+                {isUpdating ? 'Updating...' : `Update PR #${selectedPrNumber}`}
               </Button>
             </div>
           </div>

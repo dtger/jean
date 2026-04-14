@@ -9,10 +9,15 @@ import {
   CommandList,
 } from '@/components/ui/command'
 import type { CustomCliProfile } from '@/types/preferences'
-import { BACKEND_LABELS } from '@/services/mcp'
 import { useAvailableOpencodeModels } from '@/services/opencode-cli'
+import { useAvailableCursorModels } from '@/services/cursor-cli'
 import { cn } from '@/lib/utils'
 import {
+  BackendLabel,
+  getBackendPlainLabel,
+} from '@/components/ui/backend-label'
+import {
+  formatCursorModelLabel,
   formatOpencodeModelLabel,
   getProviderDisplayName,
 } from '@/components/chat/toolbar/toolbar-utils'
@@ -20,16 +25,16 @@ import { useToolbarDerivedState } from '@/components/chat/toolbar/useToolbarDeri
 
 interface BackendModelPickerContentProps {
   open: boolean
-  selectedBackend: 'claude' | 'codex' | 'opencode'
+  selectedBackend: 'claude' | 'codex' | 'opencode' | 'cursor'
   selectedModel: string
   selectedProvider: string | null
-  installedBackends: ('claude' | 'codex' | 'opencode')[]
+  installedBackends: ('claude' | 'codex' | 'opencode' | 'cursor')[]
   customCliProfiles: CustomCliProfile[]
   sessionHasMessages?: boolean
   providerLocked?: boolean
   onModelChange: (model: string) => void
   onBackendModelChange: (
-    backend: 'claude' | 'codex' | 'opencode',
+    backend: 'claude' | 'codex' | 'opencode' | 'cursor',
     model: string
   ) => void
   onRequestClose: () => void
@@ -60,6 +65,9 @@ export function BackendModelPickerContent({
   const { data: availableOpencodeModels } = useAvailableOpencodeModels({
     enabled: installedBackends.includes('opencode'),
   })
+  const { data: availableCursorModels } = useAvailableCursorModels({
+    enabled: installedBackends.includes('cursor'),
+  })
 
   const opencodeModelOptions = useMemo(
     () =>
@@ -69,12 +77,21 @@ export function BackendModelPickerContent({
       })),
     [availableOpencodeModels]
   )
+  const cursorModelOptions = useMemo(
+    () =>
+      availableCursorModels?.map(model => ({
+        value: `cursor/${model.id}`,
+        label: model.label || formatCursorModelLabel(model.id),
+      })),
+    [availableCursorModels]
+  )
 
   const { backendModelSections } = useToolbarDerivedState({
     selectedBackend,
     selectedProvider,
     selectedModel,
     opencodeModelOptions,
+    cursorModelOptions,
     customCliProfiles,
     installedBackends,
   })
@@ -124,7 +141,7 @@ export function BackendModelPickerContent({
   }, [open])
 
   const handleSelect = useCallback(
-    (backend: 'claude' | 'codex' | 'opencode', model: string) => {
+    (backend: 'claude' | 'codex' | 'opencode' | 'cursor', model: string) => {
       if (backend === selectedBackend) {
         onModelChange(model)
       } else {
@@ -180,7 +197,12 @@ export function BackendModelPickerContent({
           {filteredSections.map(section => (
             <CommandGroup
               key={section.backend}
-              heading={BACKEND_LABELS[section.backend] ?? section.backend}
+              heading={
+                <BackendLabel
+                  backend={section.backend}
+                  badgeClassName="text-[9px] leading-3"
+                />
+              }
               className="[&_[cmdk-group-heading]]:sticky [&_[cmdk-group-heading]]:top-0 [&_[cmdk-group-heading]]:z-10 [&_[cmdk-group-heading]]:border-y [&_[cmdk-group-heading]]:bg-muted/95 [&_[cmdk-group-heading]]:backdrop-blur [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[0.18em] [&_[cmdk-group-heading]]:text-foreground/85"
             >
               {section.options.map(option => {
@@ -191,7 +213,7 @@ export function BackendModelPickerContent({
                 return (
                   <CommandItem
                     key={`${section.backend}-${option.value}`}
-                    value={`${section.label} ${option.label} ${option.value}`}
+                    value={`${getBackendPlainLabel(section.backend)} ${option.label} ${option.value}`}
                     onSelect={() => handleSelect(section.backend, option.value)}
                   >
                     <div className="min-w-0 flex-1">
