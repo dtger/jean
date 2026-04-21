@@ -269,7 +269,7 @@ function TableBlock({ children, tableOffset }: TableBlockProps) {
 
   return (
     <div className="my-5">
-      <div className="mb-1 flex justify-end gap-0.5">
+      <div className="mb-2 flex justify-end gap-0.5">
         {canUseChecklist && (
           <Tooltip>
             <TooltipTrigger asChild>
