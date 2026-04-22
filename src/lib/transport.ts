@@ -135,8 +135,11 @@ export async function listen<T>(
 
 export interface InitialData {
   projects: unknown[]
-  worktreesByProject: Record<string, unknown[]>
-  sessionsByWorktree: Record<string, unknown> // worktreeId -> WorktreeSessions
+  // Tiered payload: worktrees/sessions are present only for the selected
+  // project; other projects are lazy-loaded by TanStack Query hooks on
+  // navigation.
+  worktreesByProject?: Record<string, unknown[]>
+  sessionsByWorktree?: Record<string, unknown> // worktreeId -> WorktreeSessions
   activeSessions?: Record<string, unknown> // sessionId -> Session (with messages)
   runningSessions?: string[] // sessionIds with active CLI processes
   replayEvents?: BootstrapEvent[]
@@ -149,13 +152,45 @@ let initialDataPromise: Promise<InitialData | null> | null = null
 let initialDataResolved = false
 
 /**
+ * Build the /api/init URL with the given query params.
+ * Centralizes token + selected_project + active_sessions encoding.
+ */
+function buildInitUrl(opts: {
+  selectedProjectId?: string | null
+  activeSessionIds?: Record<string, string>
+}): string {
+  const urlToken = new URLSearchParams(window.location.search).get('token')
+  const token = urlToken || localStorage.getItem('jean-http-token') || ''
+
+  const params = new URLSearchParams()
+  if (token) params.set('token', token)
+  if (opts.selectedProjectId) {
+    params.set('selected_project', opts.selectedProjectId)
+  }
+  if (opts.activeSessionIds && Object.keys(opts.activeSessionIds).length > 0) {
+    const pairs = Object.entries(opts.activeSessionIds)
+      .map(([wId, sId]) => `${wId}:${sId}`)
+      .join(',')
+    params.set('active_sessions', pairs)
+  }
+  const qs = params.toString()
+  return qs ? `/api/init?${qs}` : '/api/init'
+}
+
+/**
  * Preload initial data via HTTP before WebSocket connects.
  * This allows the web view to show content immediately instead of
  * waiting for WebSocket connection + command round-trip.
  *
  * Returns null if preloading fails (app will fall back to WebSocket).
+ *
+ * @param selectedProjectId - Browser's currently-selected project id.
+ *   Sent so the server scopes the init payload to just that project's
+ *   worktrees/sessions. Falls back to `ui_state.json` on disk when absent.
  */
-export async function preloadInitialData(): Promise<InitialData | null> {
+export async function preloadInitialData(
+  selectedProjectId?: string | null
+): Promise<InitialData | null> {
   if (isNativeApp()) return null
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   if (typeof window !== 'undefined' && (window as any).__JEAN_E2E_MOCK__)
@@ -163,13 +198,8 @@ export async function preloadInitialData(): Promise<InitialData | null> {
   if (initialDataPromise) return initialDataPromise
 
   initialDataPromise = (async () => {
-    const urlToken = new URLSearchParams(window.location.search).get('token')
-    const token = urlToken || localStorage.getItem('jean-http-token') || ''
-
     try {
-      const url = token
-        ? `/api/init?token=${encodeURIComponent(token)}`
-        : '/api/init'
+      const url = buildInitUrl({ selectedProjectId })
       const response = await fetch(url)
       if (!response.ok) {
         return null
@@ -192,27 +222,17 @@ export async function preloadInitialData(): Promise<InitialData | null> {
  * @param activeSessionIds - Browser's current active session IDs per worktree.
  *   Sent to the server so it loads the correct sessions even when ui_state.json
  *   is stale (debounced save hasn't flushed yet).
+ * @param selectedProjectId - Browser's currently-selected project id. Scopes
+ *   the payload to that project; falls back to `ui_state.json` when absent.
  */
 export async function refetchInitialData(
-  activeSessionIds?: Record<string, string>
+  activeSessionIds?: Record<string, string>,
+  selectedProjectId?: string | null
 ): Promise<InitialData | null> {
   if (isNativeApp()) return null
 
-  const urlToken = new URLSearchParams(window.location.search).get('token')
-  const token = urlToken || localStorage.getItem('jean-http-token') || ''
-
   try {
-    const params = new URLSearchParams()
-    if (token) params.set('token', token)
-    if (activeSessionIds && Object.keys(activeSessionIds).length > 0) {
-      // Encode as worktreeId:sessionId pairs
-      const pairs = Object.entries(activeSessionIds)
-        .map(([wId, sId]) => `${wId}:${sId}`)
-        .join(',')
-      params.set('active_sessions', pairs)
-    }
-    const qs = params.toString()
-    const url = qs ? `/api/init?${qs}` : '/api/init'
+    const url = buildInitUrl({ selectedProjectId, activeSessionIds })
     const response = await fetch(url)
     if (!response.ok) return null
     return (await response.json()) as InitialData

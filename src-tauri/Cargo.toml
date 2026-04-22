@@ -48,7 +48,7 @@ tar = "0.4"      # For tar archive extraction (gh CLI on Linux)
 portable-pty = "0.8"  # For terminal/PTY support
 which = "7"           # For cross-platform executable detection
 axum = { version = "0.8", features = ["ws"] }  # HTTP server + WebSocket
-tower-http = { version = "0.6", features = ["cors", "fs"] }  # CORS middleware + static file serving
+tower-http = { version = "0.6", features = ["cors", "fs", "compression-br", "compression-gzip"] }  # CORS + static files + response compression
 tokio = { version = "1", features = ["sync", "macros"] }  # Channel for WS broadcast
 futures-util = "0.3"  # Stream utilities for WebSocket split
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }  # Image resize/compression on paste

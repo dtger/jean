@@ -13,6 +13,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 use tokio::sync::Mutex;
+use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 
@@ -58,6 +59,10 @@ struct WsAuth {
     /// Used by /api/init to load the correct active sessions even when
     /// ui_state.json on disk is stale (debounced save hasn't flushed yet).
     active_sessions: Option<String>,
+    /// Browser-provided selected project id. Overrides `ui_state.selected_project_id`
+    /// when the disk copy is stale. Used to scope the init payload to only the
+    /// worktrees/sessions the user is currently viewing.
+    selected_project: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -160,6 +165,7 @@ pub async fn start_server(
         .route("/api/init", get(init_handler))
         .route("/api/files/{*filepath}", get(file_handler))
         .fallback_service(serve_dir)
+        .layer(CompressionLayer::new().br(true).gzip(true))
         .layer(cors)
         .with_state(state);
 
@@ -249,8 +255,20 @@ async fn auth_handler(Query(params): Query<WsAuth>, State(state): State<AppState
     }
 }
 
-/// Initial data endpoint. Returns all data needed to render the initial view.
-/// This is used by the web view to preload data before WebSocket connects.
+/// Maximum number of chat messages loaded per active session at init.
+/// Older messages are fetched on-demand via `load_older_session_messages`
+/// when the user scrolls up in the chat window.
+const INIT_MESSAGE_WINDOW: usize = 50;
+
+/// Maximum number of buffered WebSocket events replayed per focused running
+/// session at init. Plenty to reconstruct an in-flight turn; full stream
+/// continues over the WebSocket connection.
+const INIT_REPLAY_EVENT_CAP: usize = 200;
+
+/// Initial data endpoint. Returns only the data needed to render the view the
+/// user lands on (project list + currently-selected project's worktrees +
+/// windowed messages for the focused session). Additional data is lazy-loaded
+/// by the frontend via TanStack Query hooks when the user navigates.
 async fn init_handler(Query(params): Query<WsAuth>, State(state): State<AppState>) -> Response {
     // Validate token (skip if token not required)
     if state.token_required {
@@ -260,17 +278,15 @@ async fn init_handler(Query(params): Query<WsAuth>, State(state): State<AppState
         }
     }
 
-    // Fetch base data in parallel
+    // Fetch base (always-included) data in parallel
     let (projects_result, preferences_result, ui_state_result) = tokio::join!(
         crate::projects::list_projects(state.app.clone()),
         crate::load_preferences(state.app.clone()),
         crate::load_ui_state(state.app.clone()),
     );
 
-    // Build response object with available data (don't fail if one part fails)
     let mut response = serde_json::json!({});
 
-    // Extract projects and fetch worktrees for each
     let projects = match projects_result {
         Ok(projects) => projects,
         Err(e) => {
@@ -279,70 +295,84 @@ async fn init_handler(Query(params): Query<WsAuth>, State(state): State<AppState
         }
     };
 
-    // Fetch worktrees for all projects in parallel
-    let worktrees_futures: Vec<_> = projects
-        .iter()
-        .filter(|p| !p.is_folder) // Only fetch worktrees for actual projects
-        .map(|p| {
-            let app = state.app.clone();
-            let project_id = p.id.clone();
-            async move {
-                let worktrees = crate::projects::list_worktrees(app, project_id.clone())
+    let mut ui_state = match &ui_state_result {
+        Ok(ui_state) => Some(ui_state.clone()),
+        Err(_) => None,
+    };
+
+    // Resolve the "focused" project to scope the payload around.
+    // Priority: browser override query param > ui_state.active_project_id.
+    // Fall back to active_worktree_id's parent project if no active_project_id.
+    let selected_project_id: Option<String> = params
+        .selected_project
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            ui_state
+                .as_ref()
+                .and_then(|u| u.active_project_id.clone())
+                .filter(|s| !s.is_empty())
+        });
+
+    // Validate the selected project exists and is a real project (not a folder).
+    let selected_project = selected_project_id
+        .as_deref()
+        .and_then(|id| projects.iter().find(|p| p.id == id && !p.is_folder));
+
+    // Fetch worktrees + sessions (counts only) ONLY for the selected project.
+    // All other projects' worktrees/sessions are lazy-loaded by the frontend
+    // when the user navigates.
+    let (worktrees_by_project, sessions_by_worktree): (
+        std::collections::HashMap<String, Vec<crate::projects::types::Worktree>>,
+        std::collections::HashMap<String, crate::chat::types::WorktreeSessions>,
+    ) = if let Some(project) = selected_project {
+        let worktrees = crate::projects::list_worktrees(state.app.clone(), project.id.clone())
+            .await
+            .unwrap_or_default();
+
+        let sessions_futures: Vec<_> = worktrees
+            .iter()
+            .map(|wt| {
+                let app = state.app.clone();
+                let worktree_id = wt.id.clone();
+                let worktree_path = wt.path.clone();
+                async move {
+                    let sessions = crate::chat::get_sessions(
+                        app,
+                        worktree_id.clone(),
+                        worktree_path,
+                        None,       // include_archived
+                        Some(true), // include_message_counts
+                    )
                     .await
                     .unwrap_or_default();
-                (project_id, worktrees)
-            }
-        })
-        .collect();
+                    (worktree_id, sessions)
+                }
+            })
+            .collect();
 
-    let worktrees_by_project: std::collections::HashMap<
-        String,
-        Vec<crate::projects::types::Worktree>,
-    > = futures_util::future::join_all(worktrees_futures)
-        .await
-        .into_iter()
-        .collect();
+        let sessions_by_wt: std::collections::HashMap<
+            String,
+            crate::chat::types::WorktreeSessions,
+        > = futures_util::future::join_all(sessions_futures)
+            .await
+            .into_iter()
+            .collect();
 
-    // Collect all worktrees for session/status fetching
-    let all_worktrees: Vec<_> = worktrees_by_project
-        .values()
-        .flat_map(|wts| wts.iter())
-        .collect();
+        let mut wt_map = std::collections::HashMap::new();
+        wt_map.insert(project.id.clone(), worktrees);
+        (wt_map, sessions_by_wt)
+    } else {
+        (
+            std::collections::HashMap::new(),
+            std::collections::HashMap::new(),
+        )
+    };
 
-    // Fetch sessions for all worktrees in parallel
-    let sessions_futures: Vec<_> = all_worktrees
-        .iter()
-        .map(|wt| {
-            let app = state.app.clone();
-            let worktree_id = wt.id.clone();
-            let worktree_path = wt.path.clone();
-            async move {
-                let sessions = crate::chat::get_sessions(
-                    app,
-                    worktree_id.clone(),
-                    worktree_path,
-                    None,       // include_archived
-                    Some(true), // include_message_counts
-                )
-                .await
-                .unwrap_or_default();
-                (worktree_id, sessions)
-            }
-        })
-        .collect();
-
-    // WorktreeSessions contains the full struct - keep as-is for frontend compatibility
-    let sessions_by_worktree: std::collections::HashMap<
-        String,
-        crate::chat::types::WorktreeSessions,
-    > = futures_util::future::join_all(sessions_futures)
-        .await
-        .into_iter()
-        .collect();
-
-    // Note: Git status is already included in the Worktree struct (cached_* fields)
-    // No need to fetch separately - the frontend will use worktree.cached_* values
-
+    // Only worktrees in the selected project are "known" for validation/cleanup.
+    // Entries in ui_state.active_session_ids for worktrees outside this scope
+    // are left untouched — we don't have the data to judge them.
     let is_active_session_valid = |worktree_id: &str, session_id: &str| {
         sessions_by_worktree
             .get(worktree_id)
@@ -353,6 +383,7 @@ async fn init_handler(Query(params): Query<WsAuth>, State(state): State<AppState
             })
             .unwrap_or(false)
     };
+    let is_worktree_in_scope = |worktree_id: &str| sessions_by_worktree.contains_key(worktree_id);
 
     // Parse browser-provided active session IDs (worktreeId:sessionId pairs).
     // These override ui_state.json which may be stale due to debounced save.
@@ -371,14 +402,10 @@ async fn init_handler(Query(params): Query<WsAuth>, State(state): State<AppState
         })
         .collect();
 
-    // Extract ui_state early so we can use it to fetch active sessions
-    let mut ui_state = match &ui_state_result {
-        Ok(ui_state) => Some(ui_state.clone()),
-        Err(_) => None,
-    };
-
     // Merge browser's active sessions into ui_state (browser is more recent
-    // than disk when ui_state.json save is debounced).
+    // than disk when ui_state.json save is debounced). Only merge entries we
+    // can validate (inside scope); unknown worktrees pass through untouched
+    // since the frontend is the source of truth for them.
     if !browser_active_sessions.is_empty() {
         if let Some(ref mut ui) = ui_state {
             for (worktree_id, session_id) in &browser_active_sessions {
@@ -386,6 +413,10 @@ async fn init_handler(Query(params): Query<WsAuth>, State(state): State<AppState
                     log::debug!(
                         "Using browser active session {session_id} for worktree {worktree_id}"
                     );
+                    ui.active_session_ids
+                        .insert(worktree_id.clone(), session_id.clone());
+                } else if !is_worktree_in_scope(worktree_id) {
+                    // Out-of-scope worktree — trust browser.
                     ui.active_session_ids
                         .insert(worktree_id.clone(), session_id.clone());
                 }
@@ -396,19 +427,21 @@ async fn init_handler(Query(params): Query<WsAuth>, State(state): State<AppState
     let mut cleaned_active_sessions: Vec<(String, Option<String>)> = Vec::new();
 
     // Clean up stale active_session_ids that reference deleted/archived sessions.
-    // This happens when a session is deleted in the native app but ui-state.json
-    // hasn't been flushed yet (debounced save) before a web client connects.
+    // Only operates on worktrees inside the selected project's scope (where
+    // we have authoritative session data). Out-of-scope entries are preserved.
     if let Some(ref mut ui) = ui_state {
         let stale_keys: Vec<String> = ui
             .active_session_ids
             .iter()
-            .filter(|(worktree_id, session_id)| !is_active_session_valid(worktree_id, session_id))
+            .filter(|(worktree_id, session_id)| {
+                is_worktree_in_scope(worktree_id)
+                    && !is_active_session_valid(worktree_id, session_id)
+            })
             .map(|(k, _)| k.clone())
             .collect();
 
         for worktree_id in stale_keys {
             let old_id = ui.active_session_ids.remove(&worktree_id);
-            // Try to fall back to the most recent non-archived session
             let fallback_session_id = sessions_by_worktree
                 .get(&worktree_id)
                 .and_then(|ws| ws.sessions.iter().find(|s| s.archived_at.is_none()))
@@ -479,18 +512,18 @@ async fn init_handler(Query(params): Query<WsAuth>, State(state): State<AppState
         }
     }
 
-    // Fetch full session details (with messages) for all active sessions
-    // This ensures the chat history is immediately available when the app loads
+    // Fetch windowed chat history for active sessions that belong to the
+    // selected project. Other active sessions load on-demand when the user
+    // switches projects/worktrees.
     let active_sessions: std::collections::HashMap<String, crate::chat::types::Session> =
         if let Some(ref ui) = ui_state {
-            // Build a map of worktree_id -> worktree for path lookup
             let worktree_map: std::collections::HashMap<&str, &crate::projects::types::Worktree> =
-                all_worktrees
-                    .iter()
-                    .map(|wt| (wt.id.as_str(), *wt))
+                worktrees_by_project
+                    .values()
+                    .flat_map(|wts| wts.iter())
+                    .map(|wt| (wt.id.as_str(), wt))
                     .collect();
 
-            // Fetch full session details for each active session
             let session_futures: Vec<_> = ui
                 .active_session_ids
                 .iter()
@@ -506,7 +539,7 @@ async fn init_handler(Query(params): Query<WsAuth>, State(state): State<AppState
                                 wt_id,
                                 wt_path,
                                 sess_id.clone(),
-                                None,
+                                Some(INIT_MESSAGE_WINDOW),
                             )
                             .await
                             {
@@ -530,29 +563,32 @@ async fn init_handler(Query(params): Query<WsAuth>, State(state): State<AppState
             std::collections::HashMap::new()
         };
 
-    // Serialize projects
+    // Serialize projects (always included)
     if let Ok(val) = serde_json::to_value(&projects) {
         response["projects"] = val;
     }
 
-    // Serialize worktrees map (projectId -> worktrees[])
-    if let Ok(val) = serde_json::to_value(&worktrees_by_project) {
-        response["worktreesByProject"] = val;
+    // Only emit worktrees/sessions keys when we actually have data.
+    // Frontend checks `if (data.worktreesByProject)` etc. — omitting the key
+    // signals lazy-load via TanStack Query hooks.
+    if !worktrees_by_project.is_empty() {
+        if let Ok(val) = serde_json::to_value(&worktrees_by_project) {
+            response["worktreesByProject"] = val;
+        }
     }
 
-    // Serialize sessions map (worktreeId -> WorktreeSessions)
-    if let Ok(val) = serde_json::to_value(&sessions_by_worktree) {
-        response["sessionsByWorktree"] = val;
+    if !sessions_by_worktree.is_empty() {
+        if let Ok(val) = serde_json::to_value(&sessions_by_worktree) {
+            response["sessionsByWorktree"] = val;
+        }
     }
 
-    // Serialize active sessions map (sessionId -> Session with messages)
     if !active_sessions.is_empty() {
         if let Ok(val) = serde_json::to_value(&active_sessions) {
             response["activeSessions"] = val;
         }
     }
 
-    // Include app data dir so the web view can build file-serving URLs
     if let Ok(app_data_dir) = state.app.path().app_data_dir() {
         response["appDataDir"] = Value::String(app_data_dir.to_string_lossy().to_string());
     }
@@ -569,38 +605,50 @@ async fn init_handler(Query(params): Query<WsAuth>, State(state): State<AppState
         }
     }
 
-    // Use the cleaned ui_state (with stale active_session_ids removed) if available,
-    // otherwise fall back to the original result for error handling
-    // Include currently running session IDs so web clients can restore sending state
     let running_sessions = crate::chat::registry::get_running_sessions();
     response["runningSessions"] = serde_json::to_value(&running_sessions).unwrap_or_default();
 
-    if !running_sessions.is_empty() {
-        let mut replay_events: Vec<Value> = state
-            .app
-            .try_state::<WsBroadcaster>()
-            .map(|broadcaster| {
-                let mut events: Vec<Value> = running_sessions
-                    .iter()
-                    .flat_map(|session_id| broadcaster.replay_events(session_id, 0))
-                    .filter_map(|(_, json)| serde_json::from_str::<Value>(&json).ok())
-                    .collect();
-                events.sort_by_key(|event| {
-                    event
-                        .get("seq")
-                        .and_then(|seq| seq.as_u64())
-                        .unwrap_or_default()
-                });
-                events
-            })
-            .unwrap_or_default();
+    // Replay events: only for running sessions that are also focused (in
+    // active_sessions), capped at the last N events per session. The WebSocket
+    // reconnect path continues to stream the full event flow.
+    if !running_sessions.is_empty() && !active_sessions.is_empty() {
+        let focused: std::collections::HashSet<&String> = running_sessions
+            .iter()
+            .filter(|id| active_sessions.contains_key(id.as_str()))
+            .collect();
 
-        replay_events.dedup_by(|a, b| {
-            a.get("seq").and_then(|seq| seq.as_u64()) == b.get("seq").and_then(|seq| seq.as_u64())
-        });
+        if !focused.is_empty() {
+            let mut replay_events: Vec<Value> = state
+                .app
+                .try_state::<WsBroadcaster>()
+                .map(|broadcaster| {
+                    let mut events: Vec<Value> = focused
+                        .iter()
+                        .flat_map(|session_id| {
+                            let buffered = broadcaster.replay_events(session_id, 0);
+                            let start = buffered.len().saturating_sub(INIT_REPLAY_EVENT_CAP);
+                            buffered[start..].to_vec()
+                        })
+                        .filter_map(|(_, json)| serde_json::from_str::<Value>(&json).ok())
+                        .collect();
+                    events.sort_by_key(|event| {
+                        event
+                            .get("seq")
+                            .and_then(|seq| seq.as_u64())
+                            .unwrap_or_default()
+                    });
+                    events
+                })
+                .unwrap_or_default();
 
-        if !replay_events.is_empty() {
-            response["replayEvents"] = Value::Array(replay_events);
+            replay_events.dedup_by(|a, b| {
+                a.get("seq").and_then(|seq| seq.as_u64())
+                    == b.get("seq").and_then(|seq| seq.as_u64())
+            });
+
+            if !replay_events.is_empty() {
+                response["replayEvents"] = Value::Array(replay_events);
+            }
         }
     }
 

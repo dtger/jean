@@ -36,6 +36,7 @@ import {
 import { useUIStore } from './store/ui-store'
 import type { AppPreferences } from './types/preferences'
 import { useChatStore } from './store/chat-store'
+import { useProjectsStore } from './store/projects-store'
 import { useFontSettings } from './hooks/use-font-settings'
 import { useZoom } from './hooks/use-zoom'
 import { useImmediateSessionStateSave } from './hooks/useImmediateSessionStateSave'
@@ -398,7 +399,9 @@ function App() {
   useEffect(() => {
     if (isNativeApp()) return
 
-    preloadInitialData()
+    const initialSelectedProjectId =
+      useProjectsStore.getState().selectedProjectId
+    preloadInitialData(initialSelectedProjectId)
       .then(data => {
         if (data) {
           logger.info('Preloaded initial data via HTTP', {
@@ -474,7 +477,11 @@ function App() {
       // so the server loads the correct sessions even when ui_state.json
       // on disk is stale (debounced save hasn't flushed yet).
       const activeSessionIds = useChatStore.getState().activeSessionIds
-      const dataPromise = refetchInitialData(activeSessionIds)
+      const selectedProjectId = useProjectsStore.getState().selectedProjectId
+      const dataPromise = refetchInitialData(
+        activeSessionIds,
+        selectedProjectId
+      )
       logger.info('WebSocket reconnected, re-fetching initial data via HTTP')
       dataPromise
         .then(data => {
