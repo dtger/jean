@@ -140,14 +140,17 @@ export function useNewWorktreeHandlers(data: Data, setters: Setters) {
     ]
   )
 
-  const handleCreateWorktree = useCallback(() => {
-    if (!selectedProjectId) {
-      toast.error('No project selected')
-      return
-    }
-    createWorktree.mutate({ projectId: selectedProjectId })
-    handleOpenChange(false)
-  }, [selectedProjectId, createWorktree, handleOpenChange])
+  const handleCreateWorktree = useCallback(
+    (customName?: string) => {
+      if (!selectedProjectId) {
+        toast.error('No project selected')
+        return
+      }
+      createWorktree.mutate({ projectId: selectedProjectId, customName })
+      handleOpenChange(false)
+    },
+    [selectedProjectId, createWorktree, handleOpenChange]
+  )
 
   const handleBaseSession = useCallback(() => {
     if (!selectedProjectId) {
