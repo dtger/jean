@@ -4,17 +4,19 @@ import {
   CODEX_MODEL_OPTIONS,
   CURSOR_MODEL_OPTIONS,
   MODEL_OPTIONS,
+  PI_MODEL_OPTIONS,
   OPENCODE_MODEL_OPTIONS,
 } from '@/components/chat/toolbar/toolbar-options'
 
 interface UseToolbarDerivedStateArgs {
-  selectedBackend: 'claude' | 'codex' | 'opencode' | 'cursor'
+  selectedBackend: 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor'
   selectedProvider: string | null
   selectedModel: string
   opencodeModelOptions?: { value: string; label: string }[]
   cursorModelOptions?: { value: string; label: string }[]
+  piModelOptions?: { value: string; label: string }[]
   customCliProfiles: CustomCliProfile[]
-  installedBackends?: ('claude' | 'codex' | 'opencode' | 'cursor')[]
+  installedBackends?: ('claude' | 'codex' | 'pi' | 'opencode' | 'cursor')[]
   availableMcpServers?: { name: string; disabled?: boolean }[]
   enabledMcpServers?: string[]
 }
@@ -25,13 +27,15 @@ export function useToolbarDerivedState({
   selectedModel,
   opencodeModelOptions,
   cursorModelOptions,
+  piModelOptions,
   customCliProfiles,
-  installedBackends = ['claude', 'codex', 'opencode', 'cursor'],
+  installedBackends = ['claude', 'codex', 'pi', 'opencode', 'cursor'],
   availableMcpServers = [],
   enabledMcpServers = [],
 }: UseToolbarDerivedStateArgs) {
   const isCodex = selectedBackend === 'codex'
   const isOpencode = selectedBackend === 'opencode'
+  const isPi = selectedBackend === 'pi'
   const isCursor = selectedBackend === 'cursor'
 
   const activeMcpCount = useMemo(() => {
@@ -80,10 +84,11 @@ export function useToolbarDerivedState({
   const resolvedOpencodeModelOptions =
     opencodeModelOptions ?? OPENCODE_MODEL_OPTIONS
   const resolvedCursorModelOptions = cursorModelOptions ?? CURSOR_MODEL_OPTIONS
+  const resolvedPiModelOptions = piModelOptions ?? PI_MODEL_OPTIONS
 
   const backendModelSections = useMemo(() => {
     const sections: {
-      backend: 'claude' | 'codex' | 'opencode' | 'cursor'
+      backend: 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor'
       label: string
       options: { value: string; label: string }[]
     }[] = []
@@ -100,6 +105,12 @@ export function useToolbarDerivedState({
           backend,
           label: 'Codex',
           options: codexModelOptions,
+        })
+      } else if (backend === 'pi') {
+        sections.push({
+          backend,
+          label: 'Pi',
+          options: resolvedPiModelOptions,
         })
       } else if (backend === 'opencode') {
         sections.push({
@@ -123,11 +134,13 @@ export function useToolbarDerivedState({
     installedBackends,
     resolvedCursorModelOptions,
     resolvedOpencodeModelOptions,
+    resolvedPiModelOptions,
   ])
 
   const filteredModelOptions = useMemo(() => {
     if (isCodex) return codexModelOptions
     if (isOpencode) return resolvedOpencodeModelOptions
+    if (isPi) return resolvedPiModelOptions
     if (isCursor) return resolvedCursorModelOptions
     return claudeModelOptions
   }, [
@@ -135,9 +148,11 @@ export function useToolbarDerivedState({
     codexModelOptions,
     isCodex,
     isCursor,
+    isPi,
     isOpencode,
     resolvedCursorModelOptions,
     resolvedOpencodeModelOptions,
+    resolvedPiModelOptions,
   ])
 
   const selectedModelLabel =
@@ -147,6 +162,7 @@ export function useToolbarDerivedState({
   return {
     isCodex,
     isCursor,
+    isPi,
     isOpencode,
     activeMcpCount,
     backendModelSections,
@@ -154,6 +170,7 @@ export function useToolbarDerivedState({
     cursorModelOptions: resolvedCursorModelOptions,
     filteredModelOptions,
     opencodeModelOptions: resolvedOpencodeModelOptions,
+    piModelOptions: resolvedPiModelOptions,
     selectedModelLabel,
   }
 }

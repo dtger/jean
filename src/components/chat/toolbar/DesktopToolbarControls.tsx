@@ -63,7 +63,7 @@ import { DockBurgerButton } from '@/components/chat/toolbar/DockBurgerButton'
 
 interface DesktopToolbarControlsProps {
   hasPendingQuestions: boolean
-  selectedBackend: 'claude' | 'codex' | 'opencode' | 'cursor'
+  selectedBackend: 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor'
   selectedModel: string
   selectedProvider: string | null
   selectedThinkingLevel: ThinkingLevel
@@ -108,14 +108,14 @@ interface DesktopToolbarControlsProps {
   onResolvePrConflicts: () => void
   onLoadContext: () => void
   onAttach: () => void
-  installedBackends: ('claude' | 'codex' | 'opencode' | 'cursor')[]
+  installedBackends: ('claude' | 'codex' | 'pi' | 'opencode' | 'cursor')[]
   onSetExecutionMode: (mode: ExecutionMode) => void
   availableExecutionModes: ExecutionMode[]
   onToggleMcpServer: (name: string) => void
 
   handleModelChange: (value: string) => void
   handleBackendModelChange: (
-    backend: 'claude' | 'codex' | 'opencode' | 'cursor',
+    backend: 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor',
     model: string
   ) => void
   handleProviderChange: (value: string) => void
@@ -204,10 +204,7 @@ export function DesktopToolbarControls({
 
   return (
     <>
-      <DockBurgerButton
-        activeMcpCount={activeMcpCount}
-        onAttach={onAttach}
-      />
+      <DockBurgerButton activeMcpCount={activeMcpCount} onAttach={onAttach} />
 
       <div className="h-4 w-px bg-border/50" />
 
@@ -692,7 +689,6 @@ export function DesktopToolbarControls({
         className="hidden @xl:flex"
         onCloseAutoFocus={focusChatInput}
       />
-
     </>
   )
 }

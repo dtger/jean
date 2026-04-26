@@ -36,6 +36,7 @@ export function getSessionProviderDisplayName(
 ): string {
   if (selectedBackend === 'codex') return 'OpenAI'
   if (selectedBackend === 'opencode') return 'OpenCode'
+  if (selectedBackend === 'pi') return 'Pi'
   if (selectedBackend === 'cursor') return 'Cursor'
   return getProviderDisplayName(selectedProvider ?? null)
 }
@@ -152,4 +153,18 @@ export function formatCursorModelLabel(raw: string): string {
   return (
     value.split('-').filter(Boolean).map(formatModelToken).join(' ') || value
   )
+}
+
+export function formatPiModelLabel(raw: string): string {
+  const value = raw.startsWith('pi/') ? raw.slice('pi/'.length) : raw
+  const [provider, ...rest] = value.split('/')
+  const model = rest.join('/') || value
+  const modelLabel = model
+    .split('-')
+    .filter(Boolean)
+    .map(formatModelToken)
+    .join(' ')
+  return provider && rest.length > 0
+    ? `${modelLabel || model} (${formatProviderName(provider)})`
+    : modelLabel || value
 }

@@ -8,6 +8,8 @@ export function getBackendLabel(backend: CliBackend): string {
       return 'Claude'
     case 'codex':
       return 'Codex'
+    case 'pi':
+      return 'Pi'
     case 'opencode':
       return 'OpenCode'
     case 'cursor':

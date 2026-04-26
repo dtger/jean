@@ -568,12 +568,14 @@ export function ChatWindow({
   const modelImpliedBackend: CliBackend | null =
     session?.selected_model?.startsWith('cursor/')
       ? 'cursor'
-      : session?.selected_model?.startsWith('opencode/')
-        ? 'opencode'
-        : session?.selected_model?.startsWith('codex') ||
-            session?.selected_model?.includes('codex')
-          ? 'codex'
-          : null
+      : session?.selected_model?.startsWith('pi/')
+        ? 'pi'
+        : session?.selected_model?.startsWith('opencode/')
+          ? 'opencode'
+          : session?.selected_model?.startsWith('codex') ||
+              session?.selected_model?.includes('codex')
+            ? 'codex'
+            : null
   // Clamp to installed backends — prevents showing "Claude" when only Codex is installed
   const selectedBackend: CliBackend =
     modelImpliedBackend ??
@@ -583,16 +585,19 @@ export function ChatWindow({
       : resolvedBackend)
   const isCodexBackend = selectedBackend === 'codex'
   const isOpencodeBackend = selectedBackend === 'opencode'
+  const isPiBackend = selectedBackend === 'pi'
   const isCursorBackend = selectedBackend === 'cursor'
 
   // Per-session model selection, falls back to preferences default (backend-aware)
   const defaultModel: string = isCodexBackend
     ? (preferences?.selected_codex_model ?? 'gpt-5.4')
-    : isOpencodeBackend
-      ? (preferences?.selected_opencode_model ?? 'opencode/gpt-5.3-codex')
-      : isCursorBackend
-        ? (preferences?.selected_cursor_model ?? 'cursor/auto')
-        : ((preferences?.selected_model as ClaudeModel) ?? DEFAULT_MODEL)
+    : isPiBackend
+      ? (preferences?.selected_pi_model ?? 'pi/google/gemini-3-pro-preview')
+      : isOpencodeBackend
+        ? (preferences?.selected_opencode_model ?? 'opencode/gpt-5.3-codex')
+        : isCursorBackend
+          ? (preferences?.selected_cursor_model ?? 'cursor/auto')
+          : ((preferences?.selected_model as ClaudeModel) ?? DEFAULT_MODEL)
   const selectedModel: string = session?.selected_model ?? defaultModel
 
   // Per-session thinking level, falls back to preferences default
@@ -608,16 +613,17 @@ export function ChatWindow({
     defaultThinkingLevel
 
   // Per-session effort level, falls back to preferences default (backend-aware)
-  const defaultEffortLevel = isCodexBackend
-    ? ((
-        {
-          low: 'low',
-          medium: 'medium',
-          high: 'high',
-          xhigh: 'xhigh',
-        } as Record<string, EffortLevel>
-      )[preferences?.default_codex_reasoning_effort ?? 'high'] ?? 'high')
-    : ((preferences?.default_effort_level as EffortLevel) ?? 'high')
+  const defaultEffortLevel =
+    isCodexBackend || isPiBackend
+      ? ((
+          {
+            low: 'low',
+            medium: 'medium',
+            high: 'high',
+            xhigh: 'xhigh',
+          } as Record<string, EffortLevel>
+        )[preferences?.default_codex_reasoning_effort ?? 'high'] ?? 'high')
+      : ((preferences?.default_effort_level as EffortLevel) ?? 'high')
   const sessionEffortLevel = useChatStore(state =>
     deferredSessionId ? state.effortLevels[deferredSessionId] : undefined
   )
@@ -1090,11 +1096,15 @@ export function ChatWindow({
         yoloModelRef.current ??
         (yoloBackend === 'codex'
           ? (preferences?.selected_codex_model ?? 'gpt-5.4')
-          : yoloBackend === 'opencode'
-            ? (preferences?.selected_opencode_model ?? 'opencode/gpt-5.3-codex')
-            : yoloBackend === 'cursor'
-              ? (preferences?.selected_cursor_model ?? 'cursor/auto')
-              : selectedModelRef.current)
+          : yoloBackend === 'pi'
+            ? (preferences?.selected_pi_model ??
+              'pi/google/gemini-3-pro-preview')
+            : yoloBackend === 'opencode'
+              ? (preferences?.selected_opencode_model ??
+                'opencode/gpt-5.3-codex')
+              : yoloBackend === 'cursor'
+                ? (preferences?.selected_cursor_model ?? 'cursor/auto')
+                : selectedModelRef.current)
       const yoloOverride =
         yoloModelRef.current || yoloBackend
           ? [yoloBackend, yoloModel].filter(Boolean).join(' / ')
@@ -1111,7 +1121,7 @@ export function ChatWindow({
       if (yoloBackend) {
         store.setSelectedBackend(
           newSession.id,
-          yoloBackend as 'claude' | 'codex' | 'opencode' | 'cursor'
+          yoloBackend as 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor'
         )
       }
       // Optimistically update TanStack Query cache so UI shows correct backend/model immediately.
@@ -1194,6 +1204,7 @@ export function ChatWindow({
       useAdaptiveThinkingRef,
       preferences?.selected_codex_model,
       preferences?.selected_opencode_model,
+      preferences?.selected_pi_model,
       session?.backend,
     ]
   )
@@ -1259,11 +1270,15 @@ export function ChatWindow({
         buildModelRef.current ??
         (buildBackend === 'codex'
           ? (preferences?.selected_codex_model ?? 'gpt-5.4')
-          : buildBackend === 'opencode'
-            ? (preferences?.selected_opencode_model ?? 'opencode/gpt-5.3-codex')
-            : buildBackend === 'cursor'
-              ? (preferences?.selected_cursor_model ?? 'cursor/auto')
-              : selectedModelRef.current)
+          : buildBackend === 'pi'
+            ? (preferences?.selected_pi_model ??
+              'pi/google/gemini-3-pro-preview')
+            : buildBackend === 'opencode'
+              ? (preferences?.selected_opencode_model ??
+                'opencode/gpt-5.3-codex')
+              : buildBackend === 'cursor'
+                ? (preferences?.selected_cursor_model ?? 'cursor/auto')
+                : selectedModelRef.current)
       const buildOverride =
         buildModelRef.current || buildBackend
           ? [buildBackend, buildModel].filter(Boolean).join(' / ')
@@ -1280,7 +1295,7 @@ export function ChatWindow({
       if (buildBackend) {
         store.setSelectedBackend(
           newSession.id,
-          buildBackend as 'claude' | 'codex' | 'opencode' | 'cursor'
+          buildBackend as 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor'
         )
       }
       // Optimistically update TanStack Query cache so UI shows correct backend/model immediately.
@@ -1363,6 +1378,7 @@ export function ChatWindow({
       useAdaptiveThinkingRef,
       preferences?.selected_codex_model,
       preferences?.selected_opencode_model,
+      preferences?.selected_pi_model,
       session?.backend,
     ]
   )
@@ -1509,11 +1525,15 @@ export function ChatWindow({
         modeModelRef.current ??
         (modeBackend === 'codex'
           ? (preferences?.selected_codex_model ?? 'gpt-5.4')
-          : modeBackend === 'opencode'
-            ? (preferences?.selected_opencode_model ?? 'opencode/gpt-5.3-codex')
-            : modeBackend === 'cursor'
-              ? (preferences?.selected_cursor_model ?? 'cursor/auto')
-              : selectedModelRef.current)
+          : modeBackend === 'pi'
+            ? (preferences?.selected_pi_model ??
+              'pi/google/gemini-3-pro-preview')
+            : modeBackend === 'opencode'
+              ? (preferences?.selected_opencode_model ??
+                'opencode/gpt-5.3-codex')
+              : modeBackend === 'cursor'
+                ? (preferences?.selected_cursor_model ?? 'cursor/auto')
+                : selectedModelRef.current)
       const modeOverride =
         modeModelRef.current || modeBackend
           ? [modeBackend, modeModel].filter(Boolean).join(' / ')
@@ -1530,7 +1550,7 @@ export function ChatWindow({
       if (modeBackend) {
         store.setSelectedBackend(
           newSession.id,
-          modeBackend as 'claude' | 'codex' | 'opencode' | 'cursor'
+          modeBackend as 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor'
         )
       }
       queryClient.setQueryData<Session>(
@@ -1620,6 +1640,7 @@ export function ChatWindow({
       useAdaptiveThinkingRef,
       preferences?.selected_codex_model,
       preferences?.selected_opencode_model,
+      preferences?.selected_pi_model,
       session?.backend,
     ]
   )

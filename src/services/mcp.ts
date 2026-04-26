@@ -293,6 +293,7 @@ export function migrateLegacyMcpKeys(
 export const BACKEND_LABELS: Record<CliBackend, string> = {
   claude: 'Claude',
   codex: 'Codex',
+  pi: 'Pi',
   opencode: 'OpenCode',
   cursor: 'Cursor',
 }

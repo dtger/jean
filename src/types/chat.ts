@@ -30,7 +30,7 @@ export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 /**
  * Backend for a chat session (Claude CLI, Codex CLI, OpenCode, or Cursor)
  */
-export type Backend = 'claude' | 'codex' | 'opencode' | 'cursor'
+export type Backend = 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor'
 
 /**
  * Execution mode for Claude CLI permission handling
@@ -180,6 +180,8 @@ export interface Session {
   codex_thread_id?: string
   /** OpenCode session ID for resuming conversations */
   opencode_session_id?: string
+  /** Pi session ID for resuming conversations */
+  pi_session_id?: string
   /** Cursor chat ID for resuming conversations */
   cursor_chat_id?: string
   /** Selected model for this session */

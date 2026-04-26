@@ -143,11 +143,15 @@ export function useGitOperations({
         preferences?.magic_prompt_models?.resolve_conflicts_model ??
         (backend === 'codex'
           ? (preferences?.selected_codex_model ?? 'gpt-5.4')
-          : backend === 'opencode'
-            ? (preferences?.selected_opencode_model ?? 'opencode/gpt-5.3-codex')
-            : backend === 'cursor'
-              ? (preferences?.selected_cursor_model ?? 'cursor/auto')
-              : (preferences?.selected_model ?? 'sonnet'))
+          : backend === 'pi'
+            ? (preferences?.selected_pi_model ??
+              'pi/google/gemini-3-pro-preview')
+            : backend === 'opencode'
+              ? (preferences?.selected_opencode_model ??
+                'opencode/gpt-5.3-codex')
+              : backend === 'cursor'
+                ? (preferences?.selected_cursor_model ?? 'cursor/auto')
+                : (preferences?.selected_model ?? 'sonnet'))
       const provider =
         override?.backend && override.backend !== 'claude'
           ? null

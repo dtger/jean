@@ -1839,6 +1839,18 @@ pub async fn dispatch_command(
             let result = crate::cursor_cli::get_cursor_install_command(app.clone()).await?;
             to_value(result)
         }
+        "check_pi_cli_installed" => {
+            let result = crate::pi_cli::check_pi_cli_installed(app.clone()).await?;
+            to_value(result)
+        }
+        "list_pi_models" => {
+            let result = crate::pi_cli::list_pi_models(app.clone()).await?;
+            to_value(result)
+        }
+        "pi_login" => {
+            let result = crate::pi_cli::pi_login(app.clone()).await?;
+            to_value(result)
+        }
         "check_opencode_cli_installed" => {
             let result = crate::opencode_cli::check_opencode_cli_installed(app.clone()).await?;
             to_value(result)

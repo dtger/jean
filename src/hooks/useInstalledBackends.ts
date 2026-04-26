@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useClaudeCliStatus } from '@/services/claude-cli'
 import { useCodexCliStatus } from '@/services/codex-cli'
 import { useOpencodeCliStatus } from '@/services/opencode-cli'
+import { usePiCliStatus } from '@/services/pi-cli'
 import { useCursorCliStatus } from '@/services/cursor-cli'
 import type { CliBackend } from '@/types/preferences'
 
@@ -14,18 +15,21 @@ export function useInstalledBackends(options?: { enabled?: boolean }) {
   const claude = useClaudeCliStatus({ enabled })
   const codex = useCodexCliStatus({ enabled })
   const opencode = useOpencodeCliStatus({ enabled })
+  const pi = usePiCliStatus({ enabled })
   const cursor = useCursorCliStatus({ enabled })
 
   const installedBackends = useMemo(() => {
     const backends: CliBackend[] = []
     if (claude.data?.installed) backends.push('claude')
     if (codex.data?.installed) backends.push('codex')
+    if (pi.data?.installed) backends.push('pi')
     if (opencode.data?.installed) backends.push('opencode')
     if (cursor.data?.installed) backends.push('cursor')
     return backends
   }, [
     claude.data?.installed,
     codex.data?.installed,
+    pi.data?.installed,
     opencode.data?.installed,
     cursor.data?.installed,
   ])
@@ -36,6 +40,7 @@ export function useInstalledBackends(options?: { enabled?: boolean }) {
       claude.isLoading ||
       codex.isLoading ||
       opencode.isLoading ||
+      pi.isLoading ||
       cursor.isLoading,
   }
 }

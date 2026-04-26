@@ -6,6 +6,7 @@ pub(crate) mod cursor;
 pub mod detached;
 mod naming;
 pub(crate) mod opencode;
+pub(crate) mod pi;
 pub mod registry;
 pub mod run_log;
 pub mod storage;

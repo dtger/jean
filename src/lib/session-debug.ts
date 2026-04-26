@@ -72,11 +72,13 @@ export function resolveSessionDebugDetails(params: {
   const defaultModel =
     finalBackend === 'codex'
       ? (preferences?.selected_codex_model ?? 'gpt-5.4')
-      : finalBackend === 'opencode'
-        ? (preferences?.selected_opencode_model ?? 'opencode/gpt-5.3-codex')
-        : finalBackend === 'cursor'
-          ? (preferences?.selected_cursor_model ?? 'cursor/auto')
-          : (preferences?.selected_model ?? 'claude-opus-4-7')
+      : finalBackend === 'pi'
+        ? (preferences?.selected_pi_model ?? 'pi/google/gemini-3-pro-preview')
+        : finalBackend === 'opencode'
+          ? (preferences?.selected_opencode_model ?? 'opencode/gpt-5.3-codex')
+          : finalBackend === 'cursor'
+            ? (preferences?.selected_cursor_model ?? 'cursor/auto')
+            : (preferences?.selected_model ?? 'claude-opus-4-7')
 
   return {
     selectedBackend: finalBackend,

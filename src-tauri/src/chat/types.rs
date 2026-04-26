@@ -93,13 +93,14 @@ pub struct UsageData {
 // Message Types
 // ============================================================================
 
-/// Backend for a chat session (Claude CLI, Codex CLI, OpenCode, or Cursor)
+/// Backend for a chat session (Claude CLI, Codex CLI, Pi, OpenCode, or Cursor)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Backend {
     #[default]
     Claude,
     Codex,
+    Pi,
     Opencode,
     Cursor,
 }
@@ -520,6 +521,9 @@ pub struct Session {
     /// OpenCode session ID for resuming conversations
     #[serde(default)]
     pub opencode_session_id: Option<String>,
+    /// Pi session ID for resuming conversations
+    #[serde(default)]
+    pub pi_session_id: Option<String>,
     /// Cursor chat ID for resuming conversations
     #[serde(default)]
     pub cursor_chat_id: Option<String>,
@@ -686,6 +690,7 @@ impl Session {
             claude_session_id: None,
             codex_thread_id: None,
             opencode_session_id: None,
+            pi_session_id: None,
             cursor_chat_id: None,
             selected_model: None,
             selected_thinking_level: None,
@@ -879,6 +884,7 @@ impl SessionMetadata {
             claude_session_id: self.claude_session_id.clone(),
             codex_thread_id: self.codex_thread_id.clone(),
             opencode_session_id: self.opencode_session_id.clone(),
+            pi_session_id: self.pi_session_id.clone(),
             cursor_chat_id: self.cursor_chat_id.clone(),
             selected_model: self.selected_model.clone(),
             selected_thinking_level: self.selected_thinking_level.clone(),
@@ -933,6 +939,7 @@ impl SessionMetadata {
         self.claude_session_id = session.claude_session_id.clone();
         self.codex_thread_id = session.codex_thread_id.clone();
         self.opencode_session_id = session.opencode_session_id.clone();
+        self.pi_session_id = session.pi_session_id.clone();
         self.cursor_chat_id = session.cursor_chat_id.clone();
         self.selected_model = session.selected_model.clone();
         self.selected_thinking_level = session.selected_thinking_level.clone();
@@ -1189,6 +1196,9 @@ pub struct RunEntry {
     /// Cursor chat ID — persisted per-run so future runs can resume the same chat.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor_chat_id: Option<String>,
+    /// Pi session ID — persisted per-run so future runs can resume the same chat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pi_session_id: Option<String>,
 }
 
 /// Session metadata - single source of truth for session data and run history
@@ -1219,6 +1229,9 @@ pub struct SessionMetadata {
     /// OpenCode session ID for resuming conversations
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opencode_session_id: Option<String>,
+    /// Pi session ID for resuming conversations
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pi_session_id: Option<String>,
     /// Cursor chat ID for resuming conversations
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor_chat_id: Option<String>,
@@ -1394,6 +1407,7 @@ impl SessionMetadata {
             claude_session_id: None,
             codex_thread_id: None,
             opencode_session_id: None,
+            pi_session_id: None,
             cursor_chat_id: None,
             selected_model: None,
             selected_thinking_level: None,
@@ -1789,6 +1803,7 @@ mod tests {
             codex_thread_id: None,
             codex_turn_id: None,
             cursor_chat_id: None,
+            pi_session_id: None,
         });
 
         assert!(metadata.find_run("run-1").is_some());
@@ -1828,6 +1843,7 @@ mod tests {
             codex_thread_id: None,
             codex_turn_id: None,
             cursor_chat_id: None,
+            pi_session_id: None,
         });
 
         assert!(metadata.latest_claude_session_id().is_none());
@@ -1853,6 +1869,7 @@ mod tests {
             codex_thread_id: None,
             codex_turn_id: None,
             cursor_chat_id: None,
+            pi_session_id: None,
         });
 
         assert_eq!(metadata.latest_claude_session_id(), Some("claude-sess-abc"));

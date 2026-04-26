@@ -15,6 +15,7 @@ import { claudeCliQueryKeys } from '@/services/claude-cli'
 import { ghCliQueryKeys } from '@/services/gh-cli'
 import { codexCliQueryKeys } from '@/services/codex-cli'
 import { opencodeCliQueryKeys } from '@/services/opencode-cli'
+import { piCliQueryKeys } from '@/services/pi-cli'
 import { cursorCliQueryKeys } from '@/services/cursor-cli'
 import { githubQueryKeys } from '@/services/github'
 import {
@@ -61,7 +62,7 @@ export function CliLoginModal() {
 }
 
 interface CliLoginModalContentProps {
-  cliType: 'claude' | 'gh' | 'codex' | 'opencode' | 'cursor' | null
+  cliType: 'claude' | 'gh' | 'codex' | 'opencode' | 'pi' | 'cursor' | null
   command: string
   commandArgs: string[] | null
   action: 'login' | 'update' | 'install'
@@ -92,9 +93,11 @@ function CliLoginModalContent({
         ? 'Codex CLI'
         : cliType === 'opencode'
           ? 'OpenCode CLI'
-          : cliType === 'cursor'
-            ? 'Cursor CLI'
-            : 'GitHub CLI'
+          : cliType === 'pi'
+            ? 'Pi CLI'
+            : cliType === 'cursor'
+              ? 'Cursor CLI'
+              : 'GitHub CLI'
   const cliTitle =
     cliType === 'cursor' ? (
       <span className="inline-flex items-center gap-2">
@@ -222,6 +225,8 @@ function CliLoginModalContent({
           queryClient.invalidateQueries({ queryKey: codexCliQueryKeys.all })
         } else if (cliType === 'opencode') {
           queryClient.invalidateQueries({ queryKey: opencodeCliQueryKeys.all })
+        } else if (cliType === 'pi') {
+          queryClient.invalidateQueries({ queryKey: piCliQueryKeys.all })
         } else if (cliType === 'cursor') {
           queryClient.invalidateQueries({ queryKey: cursorCliQueryKeys.all })
         }

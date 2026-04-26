@@ -22,14 +22,15 @@ interface UseToolbarHandlersParams {
   activeWorktreeIdRef: RefObject<string | null | undefined>
   activeWorktreePathRef: RefObject<string | null | undefined>
   enabledMcpServersRef: RefObject<string[]>
-  selectedBackend: 'claude' | 'codex' | 'opencode' | 'cursor'
-  installedBackends: ('claude' | 'codex' | 'opencode' | 'cursor')[]
+  selectedBackend: 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor'
+  installedBackends: ('claude' | 'codex' | 'pi' | 'opencode' | 'cursor')[]
   session: Session | null | undefined
   preferences:
     | {
         selected_model?: string
         selected_codex_model?: string
         selected_opencode_model?: string
+        selected_pi_model?: string
         selected_cursor_model?: string
         custom_cli_profiles?: { name: string }[]
       }
@@ -76,7 +77,10 @@ export function useToolbarHandlers({
   setLoadContextModalOpen,
 }: UseToolbarHandlersParams) {
   const persistToolbarBackendAndModel = useCallback(
-    (backend: 'claude' | 'codex' | 'opencode' | 'cursor', model: string) => {
+    (
+      backend: 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor',
+      model: string
+    ) => {
       const nextExecutionMode = normalizeExecutionModeForBackend(
         backend,
         session?.selected_execution_mode ?? 'plan'
@@ -189,15 +193,19 @@ export function useToolbarHandlers({
   )
 
   const handleToolbarBackendChange = useCallback(
-    (backend: 'claude' | 'codex' | 'opencode' | 'cursor') => {
+    (backend: 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor') => {
       const model =
         backend === 'codex'
           ? (preferences?.selected_codex_model ?? 'gpt-5.4')
-          : backend === 'opencode'
-            ? (preferences?.selected_opencode_model ?? 'opencode/gpt-5.3-codex')
-            : backend === 'cursor'
-              ? (preferences?.selected_cursor_model ?? 'cursor/auto')
-              : ((preferences?.selected_model as string) ?? DEFAULT_MODEL)
+          : backend === 'pi'
+            ? (preferences?.selected_pi_model ??
+              'pi/google/gemini-3-pro-preview')
+            : backend === 'opencode'
+              ? (preferences?.selected_opencode_model ??
+                'opencode/gpt-5.3-codex')
+              : backend === 'cursor'
+                ? (preferences?.selected_cursor_model ?? 'cursor/auto')
+                : ((preferences?.selected_model as string) ?? DEFAULT_MODEL)
 
       persistToolbarBackendAndModel(backend, model)
     },
@@ -207,11 +215,15 @@ export function useToolbarHandlers({
       preferences?.selected_cursor_model,
       preferences?.selected_model,
       preferences?.selected_opencode_model,
+      preferences?.selected_pi_model,
     ]
   )
 
   const handleToolbarBackendModelChange = useCallback(
-    (backend: 'claude' | 'codex' | 'opencode' | 'cursor', model: string) => {
+    (
+      backend: 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor',
+      model: string
+    ) => {
       persistToolbarBackendAndModel(backend, model)
     },
     [persistToolbarBackendAndModel]

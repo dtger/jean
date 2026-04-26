@@ -11,6 +11,7 @@ import {
 import type { CustomCliProfile } from '@/types/preferences'
 import { useAvailableOpencodeModels } from '@/services/opencode-cli'
 import { useAvailableCursorModels } from '@/services/cursor-cli'
+import { useAvailablePiModels } from '@/services/pi-cli'
 import { cn } from '@/lib/utils'
 import {
   BackendLabel,
@@ -19,22 +20,23 @@ import {
 import {
   formatCursorModelLabel,
   formatOpencodeModelLabel,
+  formatPiModelLabel,
   getProviderDisplayName,
 } from '@/components/chat/toolbar/toolbar-utils'
 import { useToolbarDerivedState } from '@/components/chat/toolbar/useToolbarDerivedState'
 
 interface BackendModelPickerContentProps {
   open: boolean
-  selectedBackend: 'claude' | 'codex' | 'opencode' | 'cursor'
+  selectedBackend: 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor'
   selectedModel: string
   selectedProvider: string | null
-  installedBackends: ('claude' | 'codex' | 'opencode' | 'cursor')[]
+  installedBackends: ('claude' | 'codex' | 'pi' | 'opencode' | 'cursor')[]
   customCliProfiles: CustomCliProfile[]
   sessionHasMessages?: boolean
   providerLocked?: boolean
   onModelChange: (model: string) => void
   onBackendModelChange: (
-    backend: 'claude' | 'codex' | 'opencode' | 'cursor',
+    backend: 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor',
     model: string
   ) => void
   onRequestClose: () => void
@@ -68,6 +70,9 @@ export function BackendModelPickerContent({
   const { data: availableCursorModels } = useAvailableCursorModels({
     enabled: installedBackends.includes('cursor'),
   })
+  const { data: availablePiModels } = useAvailablePiModels({
+    enabled: installedBackends.includes('pi'),
+  })
 
   const opencodeModelOptions = useMemo(
     () =>
@@ -85,6 +90,14 @@ export function BackendModelPickerContent({
       })),
     [availableCursorModels]
   )
+  const piModelOptions = useMemo(
+    () =>
+      availablePiModels?.map(model => ({
+        value: model.value,
+        label: model.label || formatPiModelLabel(model.value),
+      })),
+    [availablePiModels]
+  )
 
   const { backendModelSections } = useToolbarDerivedState({
     selectedBackend,
@@ -92,6 +105,7 @@ export function BackendModelPickerContent({
     selectedModel,
     opencodeModelOptions,
     cursorModelOptions,
+    piModelOptions,
     customCliProfiles,
     installedBackends,
   })
@@ -141,7 +155,10 @@ export function BackendModelPickerContent({
   }, [open])
 
   const handleSelect = useCallback(
-    (backend: 'claude' | 'codex' | 'opencode' | 'cursor', model: string) => {
+    (
+      backend: 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor',
+      model: string
+    ) => {
       if (backend === selectedBackend) {
         onModelChange(model)
       } else {

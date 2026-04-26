@@ -58,6 +58,11 @@ import {
   opencodeCliQueryKeys,
   useOpenCodePathDetection,
 } from '@/services/opencode-cli'
+import {
+  getPiLoginInfo,
+  useAvailablePiModels,
+  usePiCliStatus,
+} from '@/services/pi-cli'
 import { useUIStore } from '@/store/ui-store'
 import {
   getCursorInstallCommand,
@@ -125,10 +130,12 @@ import {
 import {
   CURSOR_MODEL_OPTIONS,
   OPENCODE_MODEL_OPTIONS,
+  PI_MODEL_OPTIONS,
 } from '@/components/chat/toolbar/toolbar-options'
 import {
   formatCursorModelLabel,
   formatOpencodeModelLabel,
+  formatPiModelLabel,
 } from '@/components/chat/toolbar/toolbar-utils'
 import { playNotificationSound } from '@/lib/sounds'
 import type { ThinkingLevel, EffortLevel } from '@/types/chat'
@@ -230,6 +237,7 @@ export const GeneralPane: React.FC = () => {
     isNewerVersion(codexLatestStable.version, codexStatus.version)
   const { data: opencodeStatus, isLoading: isOpenCodeLoading } =
     useOpenCodeCliStatus()
+  const { data: piStatus, isLoading: isPiLoading } = usePiCliStatus()
   const isOpencodePathSource = preferences?.opencode_cli_source === 'path'
   const { data: opencodeVersions, isLoading: isOpencodeVersionsLoading } =
     useAvailableOpencodeVersions({
@@ -264,6 +272,9 @@ export const GeneralPane: React.FC = () => {
   )
   const { data: availableOpencodeModels } = useAvailableOpencodeModels({
     enabled: !!opencodeStatus?.installed,
+  })
+  const { data: availablePiModels } = useAvailablePiModels({
+    enabled: !!piStatus?.installed,
   })
   const { data: availableCursorModels } = useAvailableCursorModels({
     enabled: !!cursorStatus?.installed,
@@ -325,6 +336,7 @@ export const GeneralPane: React.FC = () => {
   const [checkingCursorAuth, setCheckingCursorAuth] = useState(false)
   const [openCodeModelPopoverOpen, setOpenCodeModelPopoverOpen] =
     useState(false)
+  const [piModelPopoverOpen, setPiModelPopoverOpen] = useState(false)
   const [cursorModelPopoverOpen, setCursorModelPopoverOpen] = useState(false)
   const [buildModelPopoverOpen, setBuildModelPopoverOpen] = useState(false)
   const [yoloModelPopoverOpen, setYoloModelPopoverOpen] = useState(false)
@@ -524,12 +536,14 @@ export const GeneralPane: React.FC = () => {
   const claudeInstalled = cliStatus?.installed
   const codexInstalled = codexStatus?.installed
   const opencodeInstalled = opencodeStatus?.installed
+  const piInstalled = piStatus?.installed
   const cursorInstalled = cursorStatus?.installed
   const effectiveBackend = useMemo(() => {
     const installed: Record<string, boolean | undefined> = {
       claude: claudeInstalled,
       codex: codexInstalled,
       opencode: opencodeInstalled,
+      pi: piInstalled,
       cursor: cursorInstalled,
     }
     if (installed[stored]) return stored
@@ -540,6 +554,7 @@ export const GeneralPane: React.FC = () => {
     claudeInstalled,
     codexInstalled,
     opencodeInstalled,
+    piInstalled,
     cursorInstalled,
   ])
 
@@ -560,6 +575,12 @@ export const GeneralPane: React.FC = () => {
   const handleOpenCodeModelChange = (value: string) => {
     if (preferences) {
       patchPreferences.mutate({ selected_opencode_model: value })
+    }
+  }
+
+  const handlePiModelChange = (value: string) => {
+    if (preferences) {
+      patchPreferences.mutate({ selected_pi_model: value })
     }
   }
 
@@ -588,6 +609,22 @@ export const GeneralPane: React.FC = () => {
   const selectedOpenCodeModelLabel =
     openCodeModelOptions.find(option => option.value === selectedOpenCodeModel)
       ?.label ?? formatOpenCodeModelLabelForSettings(selectedOpenCodeModel)
+  const selectedPiModel =
+    preferences?.selected_pi_model ?? 'pi/google/gemini-3-pro-preview'
+  const piModelOptions = (
+    availablePiModels?.length
+      ? availablePiModels.map(model => ({
+          value: model.value,
+          label: model.label || formatPiModelLabel(model.value),
+        }))
+      : PI_MODEL_OPTIONS
+  ).map(option => ({
+    value: option.value,
+    label: option.label || formatPiModelLabel(option.value),
+  }))
+  const selectedPiModelLabel =
+    piModelOptions.find(option => option.value === selectedPiModel)?.label ??
+    formatPiModelLabel(selectedPiModel)
   const selectedCursorModel =
     preferences?.selected_cursor_model ?? 'cursor/auto'
   const cursorModelOptions: { value: CursorModel; label: string }[] = (
@@ -853,6 +890,21 @@ export const GeneralPane: React.FC = () => {
     if (!cursorStatus?.path) return
     openCliLoginModal('cursor', cursorStatus.path, ['update'], 'update')
   }, [cursorStatus?.path, openCliLoginModal])
+
+  const handlePiLogin = useCallback(async () => {
+    if (!piStatus?.path) return
+
+    try {
+      const loginInfo = await getPiLoginInfo()
+      toast.info(loginInfo.message)
+    } catch (error) {
+      toast.error('Failed to load Pi login instructions', {
+        description: error instanceof Error ? error.message : String(error),
+      })
+    }
+
+    openCliLoginModal('pi', piStatus.path, ['/login'])
+  }, [openCliLoginModal, piStatus?.path])
 
   const handleCursorInstall = useCallback(async () => {
     try {
@@ -1476,6 +1528,80 @@ export const GeneralPane: React.FC = () => {
 
       {isNativeApp() && (
         <SettingsSection
+          title="Pi CLI"
+          actions={
+            piStatus?.installed ? (
+              <Button variant="outline" size="sm" onClick={handlePiLogin}>
+                Login
+              </Button>
+            ) : (
+              <span className="text-sm text-muted-foreground">
+                Not installed
+              </span>
+            )
+          }
+        >
+          <div className="space-y-4">
+            <InlineField
+              label={piStatus?.installed ? 'Version' : 'Status'}
+              description={
+                piStatus?.installed
+                  ? 'Enables Pi AI sessions'
+                  : 'Optional — enables Pi AI sessions'
+              }
+            >
+              {isPiLoading ? (
+                <Loader2 className="size-4 animate-spin text-muted-foreground" />
+              ) : piStatus?.installed ? (
+                <span className="text-sm">
+                  {piStatus.version ?? 'Installed'}
+                </span>
+              ) : (
+                <span className="text-sm text-muted-foreground">
+                  Install `pi` and restart Jean
+                </span>
+              )}
+            </InlineField>
+
+            {piStatus?.path && (
+              <InlineField
+                label="Path"
+                description={
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => handleCopyPath(piStatus.path)}
+                        className="cursor-pointer text-left hover:underline"
+                      >
+                        {piStatus.path}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>Click to copy path</TooltipContent>
+                  </Tooltip>
+                }
+              >
+                <span className="text-sm text-muted-foreground">
+                  System PATH
+                </span>
+              </InlineField>
+            )}
+
+            {piStatus?.installed && (
+              <InlineField
+                label="Authentication"
+                description="Run `pi /login` for OAuth providers, or configure provider API keys via environment variables."
+              >
+                <Button variant="outline" size="sm" onClick={handlePiLogin}>
+                  Open login
+                </Button>
+              </InlineField>
+            )}
+          </div>
+        </SettingsSection>
+      )}
+
+      {isNativeApp() && (
+        <SettingsSection
           title={
             <span className="inline-flex items-center gap-2">
               <BackendLabel backend="cursor" />
@@ -1742,6 +1868,78 @@ export const GeneralPane: React.FC = () => {
                       </Command>
                     </PopoverContent>
                   </Popover>
+                ) : preferences?.build_backend === 'pi' ? (
+                  <Popover
+                    open={buildModelPopoverOpen}
+                    onOpenChange={setBuildModelPopoverOpen}
+                  >
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={buildModelPopoverOpen}
+                        className="w-full justify-between"
+                      >
+                        <span className="truncate text-left">
+                          {preferences?.build_model
+                            ? (piModelOptions.find(
+                                o => o.value === preferences.build_model
+                              )?.label ??
+                              formatPiModelLabel(preferences.build_model))
+                            : 'Default model'}
+                        </span>
+                        <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-80 p-0">
+                      <Command>
+                        <CommandInput placeholder="Search models..." />
+                        <CommandList onWheel={e => e.stopPropagation()}>
+                          <CommandEmpty>No models found.</CommandEmpty>
+                          <CommandGroup>
+                            <CommandItem
+                              value="default"
+                              onSelect={() => {
+                                handleBuildModelChange('default')
+                                setBuildModelPopoverOpen(false)
+                              }}
+                            >
+                              Default model
+                              <Check
+                                className={cn(
+                                  'ml-auto h-4 w-4',
+                                  !preferences?.build_model ||
+                                    preferences.build_model === 'default'
+                                    ? 'opacity-100'
+                                    : 'opacity-0'
+                                )}
+                              />
+                            </CommandItem>
+                            {piModelOptions.map(option => (
+                              <CommandItem
+                                key={option.value}
+                                value={`${option.label} ${option.value}`}
+                                onSelect={() => {
+                                  handleBuildModelChange(option.value)
+                                  setBuildModelPopoverOpen(false)
+                                }}
+                              >
+                                <span className="truncate">{option.label}</span>
+                                <Check
+                                  className={cn(
+                                    'ml-auto h-4 w-4',
+                                    preferences?.build_model === option.value
+                                      ? 'opacity-100'
+                                      : 'opacity-0'
+                                  )}
+                                />
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 ) : preferences?.build_backend === 'cursor' ? (
                   <Popover
                     open={buildModelPopoverOpen}
@@ -1949,6 +2147,78 @@ export const GeneralPane: React.FC = () => {
                               />
                             </CommandItem>
                             {openCodeModelOptions.map(option => (
+                              <CommandItem
+                                key={option.value}
+                                value={`${option.label} ${option.value}`}
+                                onSelect={() => {
+                                  handleYoloModelChange(option.value)
+                                  setYoloModelPopoverOpen(false)
+                                }}
+                              >
+                                <span className="truncate">{option.label}</span>
+                                <Check
+                                  className={cn(
+                                    'ml-auto h-4 w-4',
+                                    preferences?.yolo_model === option.value
+                                      ? 'opacity-100'
+                                      : 'opacity-0'
+                                  )}
+                                />
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                ) : preferences?.yolo_backend === 'pi' ? (
+                  <Popover
+                    open={yoloModelPopoverOpen}
+                    onOpenChange={setYoloModelPopoverOpen}
+                  >
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={yoloModelPopoverOpen}
+                        className="w-full justify-between"
+                      >
+                        <span className="truncate text-left">
+                          {preferences?.yolo_model
+                            ? (piModelOptions.find(
+                                o => o.value === preferences.yolo_model
+                              )?.label ??
+                              formatPiModelLabel(preferences.yolo_model))
+                            : 'Default model'}
+                        </span>
+                        <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-80 p-0">
+                      <Command>
+                        <CommandInput placeholder="Search models..." />
+                        <CommandList onWheel={e => e.stopPropagation()}>
+                          <CommandEmpty>No models found.</CommandEmpty>
+                          <CommandGroup>
+                            <CommandItem
+                              value="default"
+                              onSelect={() => {
+                                handleYoloModelChange('default')
+                                setYoloModelPopoverOpen(false)
+                              }}
+                            >
+                              Default model
+                              <Check
+                                className={cn(
+                                  'ml-auto h-4 w-4',
+                                  !preferences?.yolo_model ||
+                                    preferences.yolo_model === 'default'
+                                    ? 'opacity-100'
+                                    : 'opacity-0'
+                                )}
+                              />
+                            </CommandItem>
+                            {piModelOptions.map(option => (
                               <CommandItem
                                 key={option.value}
                                 value={`${option.label} ${option.value}`}
@@ -2266,6 +2536,70 @@ export const GeneralPane: React.FC = () => {
               />
             </InlineField>
           )}
+
+          {/* Pi subsection */}
+          <div className="pt-2">
+            <div className="mb-3 text-sm font-semibold text-foreground/80">
+              Pi
+            </div>
+          </div>
+
+          <InlineField label="Model" description="Pi model for AI assistance">
+            <Popover
+              open={piModelPopoverOpen}
+              onOpenChange={setPiModelPopoverOpen}
+            >
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={piModelPopoverOpen}
+                  aria-label="Select Pi model"
+                  className="w-80 max-w-full justify-between"
+                >
+                  <span className="max-w-[16rem] truncate text-left">
+                    {selectedPiModelLabel}
+                  </span>
+                  <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                className="w-[var(--radix-popover-trigger-width)] p-0"
+              >
+                <Command>
+                  <CommandInput placeholder="Search models..." />
+                  <CommandList onWheel={e => e.stopPropagation()}>
+                    <CommandEmpty>No models found.</CommandEmpty>
+                    <CommandGroup>
+                      {piModelOptions.map(option => (
+                        <CommandItem
+                          key={option.value}
+                          value={`${option.label} ${option.value}`}
+                          onSelect={() => {
+                            handlePiModelChange(option.value)
+                            setPiModelPopoverOpen(false)
+                          }}
+                        >
+                          <span className="max-w-[18rem] truncate">
+                            {option.label}
+                          </span>
+                          <Check
+                            className={cn(
+                              'ml-auto h-4 w-4',
+                              selectedPiModel === option.value
+                                ? 'opacity-100'
+                                : 'opacity-0'
+                            )}
+                          />
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+          </InlineField>
 
           {/* OpenCode subsection */}
           <div className="pt-2">

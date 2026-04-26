@@ -41,6 +41,7 @@ pub(crate) fn resolve_default_backend(app: &AppHandle, worktree_id: Option<&str>
 
     let mut resolved = match prefs_backend.as_str() {
         "codex" => Backend::Codex,
+        "pi" => Backend::Pi,
         "opencode" => Backend::Opencode,
         "cursor" => Backend::Cursor,
         _ => Backend::Claude,
@@ -59,6 +60,7 @@ pub(crate) fn resolve_default_backend(app: &AppHandle, worktree_id: Option<&str>
                 if let Some(ref pb) = project.default_backend {
                     resolved = match pb.as_str() {
                         "codex" => Backend::Codex,
+                        "pi" => Backend::Pi,
                         "opencode" => Backend::Opencode,
                         "cursor" => Backend::Cursor,
                         "claude" => Backend::Claude,
@@ -88,7 +90,12 @@ pub(crate) fn resolve_magic_prompt_backend(
             _ => {}
         }
     }
-    resolve_default_backend(app, worktree_id)
+    let backend = resolve_default_backend(app, worktree_id);
+    if backend == Backend::Pi {
+        Backend::Claude
+    } else {
+        backend
+    }
 }
 
 /// Get current Unix timestamp in seconds
@@ -120,6 +127,120 @@ fn find_neighbor_non_archived_session_id(
     }
 
     None
+}
+
+fn build_non_claude_system_prompt(
+    app: &AppHandle,
+    session_id: &str,
+    worktree_id: &str,
+    parallel_prompt: &Option<String>,
+    ai_language: &Option<String>,
+    include_plan_note: bool,
+) -> Option<String> {
+    let mut parts = Vec::new();
+
+    if include_plan_note {
+        parts.push(
+            "If execution mode is plan/read-only, create a concise implementation plan and do not edit files."
+                .to_string(),
+        );
+    }
+    if let Some(lang) = ai_language
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        parts.push(format!("Respond to the user in {lang}."));
+    }
+    if let Ok(prefs_path) = crate::get_preferences_path(app) {
+        if let Ok(contents) = std::fs::read_to_string(&prefs_path) {
+            if let Ok(prefs) = serde_json::from_str::<crate::AppPreferences>(&contents) {
+                if let Some(prompt) = prefs
+                    .magic_prompts
+                    .global_system_prompt
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                {
+                    parts.push(prompt.to_string());
+                }
+            }
+        }
+    }
+    if let Some(prompt) = parallel_prompt
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        parts.push(prompt.to_string());
+    }
+    if let Ok(data) = load_projects_data(app) {
+        if let Some(worktree) = data.find_worktree(worktree_id) {
+            if let Some(project) = data.find_project(&worktree.project_id) {
+                if let Some(prompt) = project
+                    .custom_system_prompt
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                {
+                    parts.push(prompt.to_string());
+                }
+                let linked: Vec<String> = project
+                    .linked_project_ids
+                    .iter()
+                    .filter_map(|id| data.find_project(id))
+                    .filter(|p| !p.path.trim().is_empty())
+                    .map(|p| p.path.clone())
+                    .collect();
+                if !linked.is_empty() {
+                    parts.push(format!(
+                        "This project is linked to other projects. Check these directories for additional instructions/context:\n{}",
+                        linked.iter().map(|p| format!("- {p}")).collect::<Vec<_>>().join("\n")
+                    ));
+                }
+            }
+        }
+    }
+
+    // Add loaded issue/PR/context files inline for backends without Jean-specific MCP.
+    let mut context_content = String::new();
+    if let Ok(contexts_dir) = crate::projects::github_issues::get_github_contexts_dir(app) {
+        for key in get_session_issue_refs(app, session_id)
+            .unwrap_or_default()
+            .into_iter()
+            .chain(get_session_issue_refs(app, worktree_id).unwrap_or_default())
+        {
+            let parts_key: Vec<&str> = key.rsplitn(2, '-').collect();
+            if parts_key.len() == 2 {
+                let path = contexts_dir.join(format!("{}-issue-{}.md", parts_key[1], parts_key[0]));
+                if let Ok(content) = std::fs::read_to_string(path) {
+                    context_content.push_str(&content);
+                    context_content.push_str("\n\n---\n\n");
+                }
+            }
+        }
+        for key in get_session_pr_refs(app, session_id)
+            .unwrap_or_default()
+            .into_iter()
+            .chain(get_session_pr_refs(app, worktree_id).unwrap_or_default())
+        {
+            let parts_key: Vec<&str> = key.rsplitn(2, '-').collect();
+            if parts_key.len() == 2 {
+                let path = contexts_dir.join(format!("{}-pr-{}.md", parts_key[1], parts_key[0]));
+                if let Ok(content) = std::fs::read_to_string(path) {
+                    context_content.push_str(&content);
+                    context_content.push_str("\n\n---\n\n");
+                }
+            }
+        }
+    }
+    if !context_content.is_empty() {
+        parts.push(format!(
+            "# Loaded Context\n\nThe following context has been loaded for this session. Use it when working on the task.\n\n---\n\n{context_content}"
+        ));
+    }
+
+    (!parts.is_empty()).then(|| parts.join("\n\n"))
 }
 
 fn emit_sessions_cache_invalidation(app: &AppHandle) {
@@ -372,6 +493,7 @@ pub async fn create_session(
     // Resolve backend: explicit param → project default → global preference → Claude
     let backend_enum = match backend.as_deref() {
         Some("codex") => Backend::Codex,
+        Some("pi") => Backend::Pi,
         Some("opencode") => Backend::Opencode,
         Some("cursor") => Backend::Cursor,
         Some("claude") => Backend::Claude,
@@ -381,6 +503,8 @@ pub async fn create_session(
             if let Ok(prefs) = crate::load_preferences(app.clone()).await {
                 if prefs.default_backend == "codex" {
                     resolved = Backend::Codex;
+                } else if prefs.default_backend == "pi" {
+                    resolved = Backend::Pi;
                 } else if prefs.default_backend == "opencode" {
                     resolved = Backend::Opencode;
                 } else if prefs.default_backend == "cursor" {
@@ -401,6 +525,7 @@ pub async fn create_session(
                     if let Some(ref pb) = project.default_backend {
                         resolved = match pb.as_str() {
                             "codex" => Backend::Codex,
+                            "pi" => Backend::Pi,
                             "opencode" => Backend::Opencode,
                             "cursor" => Backend::Cursor,
                             "claude" => Backend::Claude,
@@ -1603,6 +1728,7 @@ pub async fn send_chat_message(
         .unwrap_or_default();
     let effective_backend = match backend.as_deref() {
         Some("codex") => Backend::Codex,
+        Some("pi") => Backend::Pi,
         Some("opencode") => Backend::Opencode,
         Some("cursor") => Backend::Cursor,
         Some("claude") => Backend::Claude,
@@ -1612,6 +1738,8 @@ pub async fn send_chat_message(
     let effective_backend = if let Some(ref m) = model {
         if crate::is_cursor_model(m) {
             Backend::Cursor
+        } else if crate::is_pi_model(m) {
+            Backend::Pi
         } else if crate::is_opencode_model(m) {
             Backend::Opencode
         } else if crate::is_codex_model(m) {
@@ -1662,6 +1790,9 @@ pub async fn send_chat_message(
     let cursor_chat_id = sessions
         .find_session(&session_id)
         .and_then(|s| s.cursor_chat_id.clone());
+    let pi_session_id = sessions
+        .find_session(&session_id)
+        .and_then(|s| s.pi_session_id.clone());
 
     // Cursor CLI doesn't support thinking/effort levels
     let run_thinking_level = if effective_backend == Backend::Cursor {
@@ -1726,6 +1857,7 @@ pub async fn send_chat_message(
                         codex_search_enabled = true;
                     }
                     Backend::Opencode => {}
+                    Backend::Pi => {}
                     Backend::Cursor => {}
                 }
             }
@@ -1774,6 +1906,7 @@ pub async fn send_chat_message(
     let thread_run_id = run_id.clone();
     let thread_opencode_session_id = opencode_session_id.clone();
     let thread_cursor_chat_id = cursor_chat_id.clone();
+    let thread_pi_session_id = pi_session_id.clone();
     let thread_model = model.clone();
     let thread_execution_mode = execution_mode.clone();
     let thread_thinking_level = thinking_level.clone();
@@ -2317,6 +2450,51 @@ pub async fn send_chat_message(
                     }
                 }
             }
+            Backend::Pi => {
+                log::trace!("About to call execute_pi_rpc...");
+
+                let pi_system_prompt = build_non_claude_system_prompt(
+                    &thread_app,
+                    &thread_session_id,
+                    &thread_worktree_id,
+                    &thread_parallel_prompt,
+                    &thread_ai_language,
+                    true,
+                );
+
+                match super::pi::execute_pi_rpc(
+                    &thread_app,
+                    &thread_session_id,
+                    &thread_worktree_id,
+                    &thread_output_file,
+                    std::path::Path::new(&thread_working_dir),
+                    thread_pi_session_id.as_deref(),
+                    thread_model.as_deref(),
+                    thread_execution_mode.as_deref(),
+                    thread_thinking_level.as_ref(),
+                    thread_effort_level.as_ref(),
+                    &thread_message,
+                    pi_system_prompt.as_deref(),
+                ) {
+                    Ok((pid, response)) => Ok((
+                        pid,
+                        UnifiedResponse {
+                            content: response.content,
+                            resume_id: response.session_id,
+                            tool_calls: response.tool_calls,
+                            content_blocks: response.content_blocks,
+                            cancelled: response.cancelled,
+                            error_emitted: response.error_emitted,
+                            usage: response.usage,
+                            backend: Backend::Pi,
+                        },
+                    )),
+                    Err(e) => {
+                        log::error!("execute_pi_rpc FAILED: {e}");
+                        Err(e)
+                    }
+                }
+            }
             Backend::Opencode => {
                 log::trace!("About to call execute_opencode...");
 
@@ -2743,7 +2921,7 @@ pub async fn send_chat_message(
     // cancelled content to the same JSONL file, and writing here would duplicate it.
     if matches!(
         unified_response.backend,
-        Backend::Opencode | Backend::Cursor
+        Backend::Opencode | Backend::Cursor | Backend::Pi
     ) && !unified_response.cancelled
     {
         if let Ok(mut file) = std::fs::OpenOptions::new().append(true).open(&output_file) {
@@ -2891,6 +3069,9 @@ pub async fn send_chat_message(
                         Backend::Opencode => {
                             session.opencode_session_id = Some(resume_id_for_log.clone());
                         }
+                        Backend::Pi => {
+                            session.pi_session_id = Some(resume_id_for_log.clone());
+                        }
                         Backend::Cursor => {
                             session.cursor_chat_id = Some(resume_id_for_log.clone());
                         }
@@ -3022,6 +3203,9 @@ pub async fn send_chat_message(
                     Backend::Opencode => {
                         session.opencode_session_id = Some(resume_id_for_log.clone());
                     }
+                    Backend::Pi => {
+                        session.pi_session_id = Some(resume_id_for_log.clone());
+                    }
                     Backend::Cursor => {
                         session.cursor_chat_id = Some(resume_id_for_log.clone());
                     }
@@ -3105,6 +3289,7 @@ pub async fn clear_session_history(
             session.claude_session_id = None;
             session.codex_thread_id = None;
             session.opencode_session_id = None;
+            session.pi_session_id = None;
             session.cursor_chat_id = None;
             session.selected_model = selected_model;
             session.selected_thinking_level = selected_thinking_level;
@@ -3201,6 +3386,7 @@ pub async fn set_session_backend(
         if let Some(session) = sessions.find_session_mut(&session_id) {
             session.backend = match backend.as_str() {
                 "codex" => super::types::Backend::Codex,
+                "pi" => super::types::Backend::Pi,
                 "opencode" => super::types::Backend::Opencode,
                 "cursor" => super::types::Backend::Cursor,
                 _ => super::types::Backend::Claude,
@@ -5705,6 +5891,7 @@ pub async fn get_mcp_servers(
     let servers = match backend.as_deref() {
         Some("codex") => crate::codex_cli::mcp::get_mcp_servers(wt),
         Some("opencode") => crate::opencode_cli::mcp::get_mcp_servers(wt),
+        Some("pi") => Vec::new(),
         Some("cursor") => crate::cursor_cli::mcp::get_mcp_servers(wt),
         _ => crate::claude_cli::mcp::get_mcp_servers(wt),
     };
@@ -5770,6 +5957,9 @@ pub async fn check_mcp_health(
     match backend.as_deref() {
         Some("codex") => check_mcp_health_codex(&app),
         Some("opencode") => check_mcp_health_opencode(&app),
+        Some("pi") => Ok(McpHealthResult {
+            statuses: std::collections::HashMap::new(),
+        }),
         Some("cursor") => check_mcp_health_cursor(&app, worktree_path.as_deref()),
         _ => check_mcp_health_claude(&app),
     }

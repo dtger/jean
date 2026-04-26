@@ -23,6 +23,7 @@ export type CliLoginModalType =
   | 'gh'
   | 'codex'
   | 'opencode'
+  | 'pi'
   | 'cursor'
   | null
 
@@ -134,7 +135,7 @@ interface UIState {
   openCliUpdateModal: (type: 'claude' | 'gh' | 'codex' | 'opencode') => void
   closeCliUpdateModal: () => void
   openCliLoginModal: (
-    type: 'claude' | 'gh' | 'codex' | 'opencode' | 'cursor',
+    type: 'claude' | 'gh' | 'codex' | 'opencode' | 'pi' | 'cursor',
     command: string,
     commandArgs?: string[],
     action?: 'login' | 'update' | 'install'

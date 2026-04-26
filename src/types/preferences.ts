@@ -960,9 +960,10 @@ export interface AppPreferences {
 
   confirm_session_close: boolean // Show confirmation dialog before closing sessions/worktrees
   default_execution_mode: ExecutionMode // Default execution mode for new sessions: 'plan', 'build', or 'yolo'
-  default_backend: CliBackend // Default CLI backend for new sessions: 'claude', 'codex', 'opencode', or 'cursor'
+  default_backend: CliBackend // Default CLI backend for new sessions: 'claude', 'codex', 'pi', 'opencode', or 'cursor'
   selected_codex_model: CodexModel // Default Codex model
   selected_opencode_model: string // Default OpenCode model (provider/model)
+  selected_pi_model: string // Default Pi model (provider/model)
   selected_cursor_model: CursorModel // Default Cursor model
   default_codex_reasoning_effort: CodexReasoningEffort // Default reasoning effort for Codex: 'low' | 'medium' | 'high' | 'xhigh'
   codex_multi_agent_enabled: boolean // Enable Codex multi-agent collaboration (experimental)
@@ -1215,11 +1216,12 @@ export const codexReasoningOptions: {
 // CLI Backend
 // =============================================================================
 
-export type CliBackend = 'claude' | 'codex' | 'opencode' | 'cursor'
+export type CliBackend = 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor'
 
 export const backendOptions: { value: CliBackend; label: string }[] = [
   { value: 'claude', label: 'Claude' },
   { value: 'codex', label: 'Codex' },
+  { value: 'pi', label: 'Pi' },
   { value: 'opencode', label: 'OpenCode' },
   { value: 'cursor', label: 'Cursor' },
 ]
@@ -1556,6 +1558,7 @@ export const defaultPreferences: AppPreferences = {
   default_backend: 'claude', // Default: Claude
   selected_codex_model: 'gpt-5.4', // Default: latest Codex model
   selected_opencode_model: 'opencode/gpt-5.3-codex', // Default OpenCode model
+  selected_pi_model: 'pi/google/gemini-3-pro-preview', // Default Pi model
   selected_cursor_model: 'cursor/auto', // Default Cursor model
   default_codex_reasoning_effort: 'high', // Default: high reasoning
   codex_multi_agent_enabled: false, // Default: disabled

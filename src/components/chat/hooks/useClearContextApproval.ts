@@ -58,18 +58,22 @@ function mapCodexReasoningToEffort(
 }
 
 function getDefaultModelForBackend(
-  backend: 'claude' | 'codex' | 'opencode' | 'cursor' | undefined,
+  backend: 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor' | undefined,
   preferences:
     | {
         selected_model?: string | null
         selected_codex_model?: string | null
         selected_opencode_model?: string | null
+        selected_pi_model?: string | null
         selected_cursor_model?: string | null
       }
     | undefined
 ): string {
   if (backend === 'codex') {
     return preferences?.selected_codex_model ?? 'gpt-5.4'
+  }
+  if (backend === 'pi') {
+    return preferences?.selected_pi_model ?? 'pi/google/gemini-3-pro-preview'
   }
   if (backend === 'opencode') {
     return preferences?.selected_opencode_model ?? 'opencode/gpt-5.3-codex'
@@ -350,7 +354,7 @@ export function useClearContextApproval({
       if (backend) {
         store.setSelectedBackend(
           newSession.id,
-          backend as 'claude' | 'codex' | 'opencode' | 'cursor'
+          backend as 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor'
         )
       }
       // Optimistically update TanStack Query cache so UI shows correct backend/model

@@ -71,7 +71,7 @@ interface MobileToolbarMenuProps {
   isDisabled: boolean
   hasOpenPr: boolean
   providerLocked?: boolean
-  selectedBackend: 'claude' | 'codex' | 'opencode' | 'cursor'
+  selectedBackend: 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor'
   selectedProvider: string | null
   backendModelLabel: ReactNode
   backendModelLabelText: string

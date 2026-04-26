@@ -22,6 +22,13 @@ export const OPENCODE_MODEL_OPTIONS: { value: string; label: string }[] = [
   { value: 'opencode/gpt-5.3-codex', label: 'GPT-5.3 Codex (OpenCode)' },
 ]
 
+export const PI_MODEL_OPTIONS: { value: string; label: string }[] = [
+  {
+    value: 'pi/google/gemini-3-pro-preview',
+    label: 'Gemini 3 Pro Preview (Google)',
+  },
+]
+
 export const CURSOR_MODEL_OPTIONS: { value: string; label: string }[] = [
   { value: 'cursor/auto', label: 'Auto' },
 ]

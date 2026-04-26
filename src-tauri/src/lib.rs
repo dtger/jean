@@ -18,6 +18,7 @@ pub mod http_server;
 mod opencode_cli;
 mod opencode_server;
 mod opinionated;
+mod pi_cli;
 mod platform;
 mod projects;
 mod terminal;
@@ -191,11 +192,13 @@ pub struct AppPreferences {
     #[serde(default = "default_execution_mode")]
     pub default_execution_mode: String, // Default execution mode: "plan", "build", or "yolo"
     #[serde(default = "default_backend")]
-    pub default_backend: String, // Default CLI backend: "claude", "codex", "opencode", or "cursor"
+    pub default_backend: String, // Default CLI backend: "claude", "codex", "pi", "opencode", or "cursor"
     #[serde(default = "default_codex_model")]
     pub selected_codex_model: String, // Default Codex model
     #[serde(default = "default_opencode_model")]
     pub selected_opencode_model: String, // Default OpenCode model (provider/model)
+    #[serde(default = "default_pi_model")]
+    pub selected_pi_model: String, // Default Pi model (provider/model)
     #[serde(default = "default_cursor_model")]
     pub selected_cursor_model: String, // Default Cursor model
     #[serde(default = "default_codex_reasoning_effort")]
@@ -410,6 +413,10 @@ fn default_codex_model() -> String {
 
 fn default_opencode_model() -> String {
     "opencode/gpt-5.3-codex".to_string()
+}
+
+fn default_pi_model() -> String {
+    "pi/google/gemini-3-pro-preview".to_string()
 }
 
 fn default_cursor_model() -> String {
@@ -1219,11 +1226,18 @@ pub fn is_cursor_model(model: &str) -> bool {
     model.starts_with("cursor/")
 }
 
+/// Returns true if the given model string identifies a Pi model.
+/// Pi model IDs are prefixed with "pi/<provider>/".
+pub fn is_pi_model(model: &str) -> bool {
+    model.starts_with("pi/")
+}
+
 /// Returns true if the given model string identifies a Codex model.
 /// Codex model IDs contain "codex" or start with "gpt-", but NOT OpenCode models.
 pub fn is_codex_model(model: &str) -> bool {
     !is_opencode_model(model)
         && !is_cursor_model(model)
+        && !is_pi_model(model)
         && (model.contains("codex") || model.starts_with("gpt-"))
 }
 
@@ -1451,6 +1465,7 @@ impl Default for AppPreferences {
             default_backend: default_backend(),
             selected_codex_model: default_codex_model(),
             selected_opencode_model: default_opencode_model(),
+            selected_pi_model: default_pi_model(),
             selected_cursor_model: default_cursor_model(),
             default_codex_reasoning_effort: default_codex_reasoning_effort(),
             codex_multi_agent_enabled: false,
@@ -3230,6 +3245,10 @@ pub fn run() {
             codex_cli::get_codex_usage,
             codex_cli::get_available_codex_versions,
             codex_cli::install_codex_cli,
+            // Pi CLI management commands
+            pi_cli::check_pi_cli_installed,
+            pi_cli::list_pi_models,
+            pi_cli::pi_login,
             // Cursor CLI management commands
             cursor_cli::check_cursor_cli_installed,
             cursor_cli::detect_cursor_in_path,

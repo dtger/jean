@@ -1,4 +1,6 @@
 use std::collections::{HashMap, HashSet};
+use std::io::Write;
+use std::process::ChildStdin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -37,6 +39,11 @@ static CANCEL_FLAGS: Lazy<Mutex<HashMap<String, OpenCodeCancelEntry>>> =
 /// Codex app-server turn registry: maps session_id → (thread_id, turn_id).
 /// Used to send `turn/interrupt` on cancellation instead of killing a process.
 static CODEX_TURN_REGISTRY: Lazy<Mutex<HashMap<String, (String, String)>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// Pi RPC stdin registry: maps session_id → child stdin.
+/// Used to send `{\"type\":\"abort\"}` on cancellation.
+static PI_STDIN_REGISTRY: Lazy<Mutex<HashMap<String, Arc<Mutex<ChildStdin>>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 fn lock_recover<'a, T>(mutex: &'a Mutex<T>, name: &str) -> std::sync::MutexGuard<'a, T> {
@@ -172,6 +179,30 @@ pub fn unregister_codex_turn(session_id: &str) {
     lock_recover(&CODEX_TURN_REGISTRY, "CODEX_TURN_REGISTRY").remove(session_id);
 }
 
+/// Register a Pi RPC stdin handle for a session.
+/// Returns `false` if the session was already cancelled.
+pub fn register_pi_stdin(session_id: String, stdin: Arc<Mutex<ChildStdin>>) -> bool {
+    {
+        let mut pending = lock_recover(&PENDING_CANCELS, "PENDING_CANCELS");
+        if pending.remove(&session_id) {
+            log::warn!("Session {session_id} was cancelled before Pi stdin registered, aborting");
+            if let Ok(mut writer) = stdin.lock() {
+                let _ = writeln!(writer, "{}", serde_json::json!({"type":"abort"}));
+                let _ = writer.flush();
+            }
+            return false;
+        }
+    }
+
+    lock_recover(&PI_STDIN_REGISTRY, "PI_STDIN_REGISTRY").insert(session_id, stdin);
+    true
+}
+
+/// Remove a Pi RPC stdin handle from the registry.
+pub fn unregister_pi_stdin(session_id: &str) {
+    lock_recover(&PI_STDIN_REGISTRY, "PI_STDIN_REGISTRY").remove(session_id);
+}
+
 /// Remove all registry state for a session after a backend crash or thread panic.
 pub fn cleanup_session_registrations(session_id: &str) {
     let removed_pid = lock_recover(&PROCESS_REGISTRY, "PROCESS_REGISTRY").remove(session_id);
@@ -182,10 +213,13 @@ pub fn cleanup_session_registrations(session_id: &str) {
     let removed_turn = lock_recover(&CODEX_TURN_REGISTRY, "CODEX_TURN_REGISTRY")
         .remove(session_id)
         .is_some();
+    let removed_pi = lock_recover(&PI_STDIN_REGISTRY, "PI_STDIN_REGISTRY")
+        .remove(session_id)
+        .is_some();
 
-    if removed_pid.is_some() || removed_pending || removed_flag || removed_turn {
+    if removed_pid.is_some() || removed_pending || removed_flag || removed_turn || removed_pi {
         log::warn!(
-            "[Registry] cleaned stale state for session={session_id} pid={removed_pid:?} pending={removed_pending} cancel_flag={removed_flag} codex_turn={removed_turn}"
+            "[Registry] cleaned stale state for session={session_id} pid={removed_pid:?} pending={removed_pending} cancel_flag={removed_flag} codex_turn={removed_turn} pi_stdin={removed_pi}"
         );
     }
 }
@@ -358,6 +392,26 @@ pub fn cancel_process(
         return Ok(true);
     }
 
+    let pi_stdin = {
+        let mut registry = lock_recover(&PI_STDIN_REGISTRY, "PI_STDIN_REGISTRY");
+        registry.remove(session_id)
+    };
+    if let Some(stdin) = pi_stdin {
+        log::warn!("Pi RPC session {session_id}: sending abort");
+        if let Ok(mut writer) = stdin.lock() {
+            let _ = writeln!(writer, "{}", serde_json::json!({"type":"abort"}));
+            let _ = writer.flush();
+        }
+
+        if let Err(e) = run_log::mark_running_run_cancelled(app, session_id) {
+            log::warn!("Failed to mark run as cancelled in manifest: {e}");
+        }
+
+        emit_cancelled_event(app, session_id, worktree_id, false);
+
+        return Ok(true);
+    }
+
     let flag_entry = {
         lock_recover(&CANCEL_FLAGS, "CANCEL_FLAGS")
             .get(session_id)
@@ -491,6 +545,26 @@ pub fn cancel_process_if_running(
                 log::error!("Failed to interrupt Codex turn: {e}");
             }
         });
+
+        if let Err(e) = run_log::mark_running_run_cancelled(app, session_id) {
+            log::warn!("Failed to mark run as cancelled in manifest: {e}");
+        }
+
+        emit_cancelled_event(app, session_id, worktree_id, false);
+
+        return Ok(true);
+    }
+
+    let pi_stdin = {
+        let mut registry = lock_recover(&PI_STDIN_REGISTRY, "PI_STDIN_REGISTRY");
+        registry.remove(session_id)
+    };
+    if let Some(stdin) = pi_stdin {
+        log::warn!("Pi RPC session {session_id}: sending abort");
+        if let Ok(mut writer) = stdin.lock() {
+            let _ = writeln!(writer, "{}", serde_json::json!({"type":"abort"}));
+            let _ = writer.flush();
+        }
 
         if let Err(e) = run_log::mark_running_run_cancelled(app, session_id) {
             log::warn!("Failed to mark run as cancelled in manifest: {e}");
