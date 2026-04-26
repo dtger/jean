@@ -358,6 +358,9 @@ fn generate_names(app: &AppHandle, request: &NamingRequest) -> Result<NamingOutp
     if backend == super::types::Backend::Codex {
         return generate_names_codex(app, &prompt, &request.model, request);
     }
+    if backend == super::types::Backend::Pi {
+        return generate_names_pi(app, &prompt, &request.model, request);
+    }
     if backend == super::types::Backend::Cursor {
         return generate_names_cursor(app, &prompt, &request.model, request);
     }
@@ -556,6 +559,37 @@ fn generate_names_cursor(
     log::trace!("Cursor generated naming response: {json_str}");
     serde_json::from_str(&json_str)
         .map_err(|e| format!("Failed to parse Cursor naming JSON: {e}, raw: {json_str}"))
+}
+
+fn generate_names_pi(
+    app: &tauri::AppHandle,
+    prompt: &str,
+    model: &str,
+    request: &NamingRequest,
+) -> Result<NamingOutput, String> {
+    log::trace!("Generating names with Pi using model {model}");
+    let text = super::pi::execute_one_shot_pi(
+        app,
+        prompt,
+        model,
+        Some(&request.worktree_path),
+        request.reasoning_effort.as_deref(),
+    )?;
+    log::trace!("Pi generated naming response: {text}");
+
+    let json_text = text
+        .trim()
+        .strip_prefix("```json")
+        .or_else(|| text.trim().strip_prefix("```"))
+        .unwrap_or(&text)
+        .trim()
+        .strip_suffix("```")
+        .unwrap_or(&text)
+        .trim();
+    let json_text = extract_json_object(json_text).unwrap_or(json_text);
+
+    serde_json::from_str(json_text)
+        .map_err(|e| format!("Failed to parse Pi naming JSON: {e}, raw: {json_text}"))
 }
 
 fn choose_opencode_model(all_providers: &serde_json::Value) -> Option<(String, String)> {
