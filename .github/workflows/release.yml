@@ -21,6 +21,9 @@ jobs:
   publish-tauri:
     permissions:
       contents: write
+    env:
+      HAS_APPLE_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' }}
+      HAS_TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -40,12 +43,15 @@ jobs:
 
       - name: Patch version from release tag
         shell: bash
+        env:
+          HAS_APPLE_SIGNING: ${{ env.HAS_APPLE_SIGNING }}
+          HAS_TAURI_PRIVATE_KEY: ${{ env.HAS_TAURI_PRIVATE_KEY }}
         run: |
           TAG="${{ github.event.release.tag_name || github.event.inputs.version || github.ref_name }}"
           VERSION="${TAG#v}"
           echo "Patching version to $VERSION"
           VERSION="$VERSION" node -e "const p=require('./package.json'); p.version=process.env.VERSION; require('fs').writeFileSync('package.json', JSON.stringify(p,null,2)+'\n')"
-          VERSION="$VERSION" node - <<'NODE'
+          VERSION="$VERSION" HAS_APPLE_SIGNING="$HAS_APPLE_SIGNING" HAS_TAURI_PRIVATE_KEY="$HAS_TAURI_PRIVATE_KEY" node - <<'NODE'
           const fs = require('fs')
           const c = require('./src-tauri/tauri.conf.json')
           c.version = process.env.VERSION
@@ -53,6 +59,13 @@ jobs:
             c.plugins.updater.endpoints = [
               `https://github.com/${process.env.GITHUB_REPOSITORY}/releases/latest/download/latest.json`,
             ]
+          }
+          if (process.env.HAS_APPLE_SIGNING !== 'true') {
+            delete c.bundle?.macOS?.signingIdentity
+            delete c.bundle?.macOS?.providerShortName
+          }
+          if (process.env.HAS_TAURI_PRIVATE_KEY !== 'true') {
+            c.bundle.createUpdaterArtifacts = false
           }
           fs.writeFileSync('src-tauri/tauri.conf.json', `${JSON.stringify(c, null, 2)}\n`)
           NODE
@@ -83,6 +96,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build and release
+        if: matrix.platform != 'macos-latest' || env.HAS_APPLE_SIGNING == 'true'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -98,7 +112,21 @@ jobs:
           tauriScript: bun run tauri
           tagName: ${{ github.event.release.tag_name || github.event.inputs.version || github.ref_name }}
           releaseId: ${{ github.event.release.id }}
-          includeUpdaterJson: true
+          includeUpdaterJson: ${{ env.HAS_TAURI_PRIVATE_KEY == 'true' }}
+          args: ${{ matrix.args }} -vv
+
+      - name: Build and release (unsigned macOS)
+        if: matrix.platform == 'macos-latest' && env.HAS_APPLE_SIGNING != 'true'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tauriScript: bun run tauri
+          tagName: ${{ github.event.release.tag_name || github.event.inputs.version || github.ref_name }}
+          releaseId: ${{ github.event.release.id }}
+          includeUpdaterJson: ${{ env.HAS_TAURI_PRIVATE_KEY == 'true' }}
           args: ${{ matrix.args }} -vv
 
       # Build AppImage separately with the custom AppRun script that fixes
