@@ -112,6 +112,7 @@ jobs:
           tauriScript: bun run tauri
           tagName: ${{ github.event.release.tag_name || github.event.inputs.version || github.ref_name }}
           releaseId: ${{ github.event.release.id }}
+          releaseName: Jean ${{ github.event.release.tag_name || github.event.inputs.version || github.ref_name }}
           includeUpdaterJson: ${{ env.HAS_TAURI_PRIVATE_KEY == 'true' }}
           args: ${{ matrix.args }} -vv
 
@@ -126,6 +127,7 @@ jobs:
           tauriScript: bun run tauri
           tagName: ${{ github.event.release.tag_name || github.event.inputs.version || github.ref_name }}
           releaseId: ${{ github.event.release.id }}
+          releaseName: Jean ${{ github.event.release.tag_name || github.event.inputs.version || github.ref_name }}
           includeUpdaterJson: ${{ env.HAS_TAURI_PRIVATE_KEY == 'true' }}
           args: ${{ matrix.args }} -vv
 
