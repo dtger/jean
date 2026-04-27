@@ -218,6 +218,13 @@ pub struct Worktree {
     /// Cached unpushed count (commits in HEAD not yet pushed to origin/current_branch)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cached_unpushed_count: Option<u32>,
+    /// Remote most recently pushed to for the PR (e.g., "origin" or "<fork_owner>").
+    /// Used by unpushed-count calc so fork-PR commits aren't reported as unpushed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr_push_remote: Option<String>,
+    /// Branch name on `pr_push_remote` most recently pushed to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr_push_branch: Option<String>,
     /// Display order within project (lower = higher in list, base sessions ignore this)
     #[serde(default)]
     pub order: u32,

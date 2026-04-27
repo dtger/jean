@@ -13,6 +13,7 @@ pub async fn check_opinionated_plugin_status(plugin_name: String) -> Result<Plug
     match plugin_name.as_str() {
         "rtk" => check_rtk_status().await,
         "caveman" => check_caveman_status().await,
+        "superpowers" => check_superpowers_status().await,
         _ => Err(format!("Unknown plugin: {plugin_name}")),
     }
 }
@@ -25,6 +26,7 @@ pub async fn install_opinionated_plugin(
     match plugin_name.as_str() {
         "rtk" => install_rtk().await,
         "caveman" => install_caveman(&app).await,
+        "superpowers" => install_superpowers(&app).await,
         _ => Err(format!("Unknown plugin: {plugin_name}")),
     }
 }
@@ -53,35 +55,9 @@ async fn check_rtk_status() -> Result<PluginStatus, String> {
 async fn check_caveman_status() -> Result<PluginStatus, String> {
     let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
 
-    let found = tokio::task::spawn_blocking(move || {
-        let plugins_cache = home.join(".claude").join("plugins").join("cache");
-        if plugins_cache.exists() {
-            if let Ok(entries) = std::fs::read_dir(&plugins_cache) {
-                for entry in entries.flatten() {
-                    let name = entry.file_name().to_string_lossy().to_lowercase();
-                    if name.contains("caveman") {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        let skills_dir = home.join(".claude").join("skills");
-        if skills_dir.exists() {
-            if let Ok(entries) = std::fs::read_dir(&skills_dir) {
-                for entry in entries.flatten() {
-                    let name = entry.file_name().to_string_lossy().to_lowercase();
-                    if name.contains("caveman") && entry.path().join("SKILL.md").exists() {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        false
-    })
-    .await
-    .map_err(|e| e.to_string())?;
+    let found = tokio::task::spawn_blocking(move || plugin_installed_marker(&home, "caveman"))
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(PluginStatus {
         installed: found,
@@ -186,6 +162,119 @@ async fn install_caveman(app: &AppHandle) -> Result<String, String> {
         Ok(output) => {
             let stderr = String::from_utf8_lossy(&output.stderr);
             Err(format!("Failed to install Caveman skill: {stderr}"))
+        }
+        Err(e) => Err(format!("Failed to run Claude CLI: {e}")),
+    }
+}
+
+async fn check_superpowers_status() -> Result<PluginStatus, String> {
+    let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
+
+    let found = tokio::task::spawn_blocking(move || plugin_installed_marker(&home, "superpowers"))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(PluginStatus {
+        installed: found,
+        version: None,
+    })
+}
+
+fn plugin_installed_marker(home: &std::path::Path, plugin_id: &str) -> bool {
+    let data_dir = home.join(".claude").join("plugins").join("data");
+    if data_dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(&data_dir) {
+            let prefix = format!("{plugin_id}-");
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_lowercase();
+                if name.starts_with(&prefix) || name == plugin_id {
+                    return true;
+                }
+            }
+        }
+    }
+
+    let plugins_cache = home.join(".claude").join("plugins").join("cache");
+    if plugins_cache.exists() {
+        if let Ok(entries) = std::fs::read_dir(&plugins_cache) {
+            for entry in entries.flatten() {
+                let entry_name = entry.file_name().to_string_lossy().to_lowercase();
+                if entry_name.contains(plugin_id) {
+                    return true;
+                }
+                let path = entry.path();
+                if path.is_dir() {
+                    if let Ok(children) = std::fs::read_dir(&path) {
+                        for child in children.flatten() {
+                            let child_name = child.file_name().to_string_lossy().to_lowercase();
+                            if child_name.contains(plugin_id) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let skills_dir = home.join(".claude").join("skills");
+    if skills_dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(&skills_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_lowercase();
+                if name.contains(plugin_id) && entry.path().join("SKILL.md").exists() {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
+async fn install_superpowers(app: &AppHandle) -> Result<String, String> {
+    let binary_path = crate::claude_cli::resolve_cli_binary(app);
+
+    if !binary_path.exists() {
+        return Err("Claude CLI must be installed first to install Superpowers".to_string());
+    }
+
+    let bin = binary_path.clone();
+    let add_result = tokio::task::spawn_blocking(move || {
+        silent_command(&bin)
+            .args(["plugin", "marketplace", "add", "obra/superpowers"])
+            .output()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    match add_result {
+        Ok(output) if !output.status.success() => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!(
+                "Failed to add Superpowers from marketplace: {stderr}"
+            ));
+        }
+        Err(e) => return Err(format!("Failed to run Claude CLI: {e}")),
+        _ => {}
+    }
+
+    let bin = binary_path;
+    let install_result = tokio::task::spawn_blocking(move || {
+        silent_command(&bin)
+            .args(["plugin", "install", "superpowers@superpowers"])
+            .output()
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+    match install_result {
+        Ok(output) if output.status.success() => {
+            Ok("Superpowers installed successfully".to_string())
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(format!("Failed to install Superpowers plugin: {stderr}"))
         }
         Err(e) => Err(format!("Failed to run Claude CLI: {e}")),
     }

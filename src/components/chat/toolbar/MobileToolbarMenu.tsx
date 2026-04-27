@@ -18,13 +18,13 @@ import {
   GitPullRequestArrow,
   Link2,
   MessageSquare,
-  MoreHorizontal,
   Pencil,
   Plug,
   RefreshCw,
   Shield,
   ShieldAlert,
   Sparkles,
+  Wand2,
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -204,7 +204,7 @@ export function MobileToolbarMenu({
           className="flex @xl:hidden h-8 items-center gap-1 rounded-l-lg px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
           disabled={isDisabled}
         >
-          <MoreHorizontal className="h-4 w-4" />
+          <Wand2 className="h-4 w-4" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align={isMobile ? 'end' : 'start'} className="w-56">

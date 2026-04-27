@@ -16,6 +16,7 @@ export function useAutoResize(
   if (supportsFieldSizing.current === null) {
     supportsFieldSizing.current =
       typeof CSS !== 'undefined' &&
+      typeof CSS.supports === 'function' &&
       CSS.supports('field-sizing', 'content')
   }
 

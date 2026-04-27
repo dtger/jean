@@ -203,10 +203,32 @@ function mergeConsecutiveStackables(items: TimelineItem[]): TimelineItem[] {
  * @param toolCalls - All tool calls from the message
  * @returns Timeline items in the correct order for rendering
  */
+/**
+ * Merge consecutive text blocks into one.
+ *
+ * Replay/snapshot paths may deliver text as many separate `ContentBlock::Text`
+ * entries (one per streaming delta). Streaming in-memory state coalesces them
+ * via `chat-store.addTextBlock`. Run both inputs through this helper so the
+ * timeline sees an identical shape regardless of origin.
+ */
+export function coalesceContentBlocks(blocks: ContentBlock[]): ContentBlock[] {
+  const out: ContentBlock[] = []
+  for (const block of blocks) {
+    const last = out[out.length - 1]
+    if (block.type === 'text' && last?.type === 'text') {
+      out[out.length - 1] = { type: 'text', text: last.text + block.text }
+    } else {
+      out.push(block)
+    }
+  }
+  return out
+}
+
 export function buildTimeline(
   contentBlocks: ContentBlock[],
   toolCalls: ToolCall[]
 ): TimelineItem[] {
+  const normalizedBlocks = coalesceContentBlocks(contentBlocks)
   const result: TimelineItem[] = []
 
   // Build a map of tool calls by ID for quick lookup
@@ -235,7 +257,7 @@ export function buildTimeline(
   // Find Tasks and their sub-tools by processing content_blocks in order
   // This respects the actual output sequence - text blocks indicate Task completion
   let currentTaskId: string | null = null
-  for (const block of contentBlocks) {
+  for (const block of normalizedBlocks) {
     if (block.type === 'text' && block.text.trim()) {
       // Text breaks the Task context - the agent has returned
       currentTaskId = null
@@ -267,8 +289,8 @@ export function buildTimeline(
   let lastTextIndex: number | null = null
 
   // Process content blocks in order
-  for (let i = 0; i < contentBlocks.length; i++) {
-    const block = contentBlocks[i]
+  for (let i = 0; i < normalizedBlocks.length; i++) {
+    const block = normalizedBlocks[i]
     if (!block) continue
 
     if (block.type === 'thinking') {

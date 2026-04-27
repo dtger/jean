@@ -5,7 +5,7 @@
  * - hasBackend(): true when a backend is available (Tauri IPC or HTTP/WS)
  *
  * Services should guard with hasBackend(), not isTauri().
- * UI should use isNativeApp() to hide terminal, Finder, etc.
+ * UI should use isNativeApp() to hide native-only features (Finder, external editors, etc.).
  */
 
 /** Running inside the native Tauri desktop app. */

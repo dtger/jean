@@ -2483,7 +2483,7 @@ dependencies = [
 
 [[package]]
 name = "jean"
-version = "0.1.44"
+version = "0.1.46-pi.4"
 dependencies = [
  "arboard",
  "axum",

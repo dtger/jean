@@ -1083,6 +1083,7 @@ pub async fn dispatch_command(
             let pr_url: Option<String> = field_opt(&args, "prUrl", "pr_url")?;
             let state = app.state::<crate::background_tasks::BackgroundTaskManager>();
             crate::background_tasks::commands::set_active_worktree_for_polling(
+                app.clone(),
                 state,
                 worktree_id,
                 worktree_path,
@@ -1469,35 +1470,59 @@ pub async fn dispatch_command(
         }
 
         // =====================================================================
-        // Terminal (NATIVE ONLY — return empty/null in browser mode)
+        // Terminal
         // =====================================================================
         "start_terminal" => {
-            // NATIVE ONLY: Terminals don't work in browser mode
+            let terminal_id: String = field(&args, "terminalId", "terminal_id")?;
+            let worktree_path: String = field(&args, "worktreePath", "worktree_path")?;
+            let cols: u16 = from_field(&args, "cols")?;
+            let rows: u16 = from_field(&args, "rows")?;
+            let command: Option<String> = from_field_opt(&args, "command")?;
+            let command_args: Option<Vec<String>> =
+                field_opt(&args, "commandArgs", "command_args")?;
+            crate::terminal::start_terminal(
+                app.clone(),
+                terminal_id,
+                worktree_path,
+                cols,
+                rows,
+                command,
+                command_args,
+            )
+            .await?;
             Ok(Value::Null)
         }
         "terminal_write" => {
-            // NATIVE ONLY: Terminals don't work in browser mode
+            let terminal_id: String = field(&args, "terminalId", "terminal_id")?;
+            let data: String = from_field(&args, "data")?;
+            crate::terminal::terminal_write(terminal_id, data).await?;
             Ok(Value::Null)
         }
         "terminal_resize" => {
-            // NATIVE ONLY: Terminals don't work in browser mode
+            let terminal_id: String = field(&args, "terminalId", "terminal_id")?;
+            let cols: u16 = from_field(&args, "cols")?;
+            let rows: u16 = from_field(&args, "rows")?;
+            crate::terminal::terminal_resize(terminal_id, cols, rows).await?;
             Ok(Value::Null)
         }
         "stop_terminal" => {
-            // NATIVE ONLY: Terminals don't work in browser mode
-            Ok(Value::Null)
+            let terminal_id: String = field(&args, "terminalId", "terminal_id")?;
+            let result = crate::terminal::stop_terminal(app.clone(), terminal_id).await?;
+            to_value(result)
         }
         "get_active_terminals" => {
-            // NATIVE ONLY: Return empty array
-            Ok(Value::Array(vec![]))
+            let result = crate::terminal::get_active_terminals().await;
+            to_value(result)
         }
         "has_active_terminal" => {
-            // NATIVE ONLY: No terminals in browser mode
-            to_value(false)
+            let terminal_id: String = field(&args, "terminalId", "terminal_id")?;
+            let result = crate::terminal::has_active_terminal(terminal_id).await;
+            to_value(result)
         }
         "get_run_scripts" => {
-            // NATIVE ONLY: Terminals don't work in browser mode
-            Ok(Value::Array(vec![]))
+            let worktree_path: String = field(&args, "worktreePath", "worktree_path")?;
+            let result = crate::terminal::get_run_scripts(worktree_path).await;
+            to_value(result)
         }
         "get_ports" => {
             let worktree_path: String = field(&args, "worktreePath", "worktree_path")?;
@@ -1505,8 +1530,8 @@ pub async fn dispatch_command(
             to_value(result)
         }
         "get_terminal_listening_ports" => {
-            // NATIVE ONLY: lsof not available in browser mode
-            Ok(Value::Array(vec![]))
+            let result = crate::terminal::get_terminal_listening_ports().await;
+            to_value(result)
         }
 
         // =====================================================================
@@ -2077,6 +2102,20 @@ pub async fn dispatch_command(
             .await?;
             Ok(Value::Null)
         }
+        "cancel_session_wakeup" => {
+            let session_id: String = field(&args, "sessionId", "session_id")?;
+            let cleared = crate::chat::cancel_session_wakeup(app.clone(), session_id).await?;
+            to_value(cleared)
+        }
+        "get_scheduled_wakeup" => {
+            let session_id: String = field(&args, "sessionId", "session_id")?;
+            let wakeup = crate::chat::get_scheduled_wakeup(app.clone(), session_id).await?;
+            to_value(wakeup)
+        }
+        "list_pending_wakeups" => {
+            let entries = crate::chat::list_pending_wakeups().await?;
+            to_value(entries)
+        }
 
         // =====================================================================
         // Chat (additional)
@@ -2455,13 +2494,21 @@ pub async fn dispatch_command(
         "set_all_worktrees_for_polling" => {
             let worktrees = from_field(&args, "worktrees")?;
             let state = app.state::<crate::background_tasks::BackgroundTaskManager>();
-            crate::background_tasks::commands::set_all_worktrees_for_polling(state, worktrees)?;
+            crate::background_tasks::commands::set_all_worktrees_for_polling(
+                app.clone(),
+                state,
+                worktrees,
+            )?;
             Ok(Value::Null)
         }
         "set_pr_worktrees_for_polling" => {
             let worktrees = from_field(&args, "worktrees")?;
             let state = app.state::<crate::background_tasks::BackgroundTaskManager>();
-            crate::background_tasks::commands::set_pr_worktrees_for_polling(state, worktrees)?;
+            crate::background_tasks::commands::set_pr_worktrees_for_polling(
+                app.clone(),
+                state,
+                worktrees,
+            )?;
             Ok(Value::Null)
         }
 

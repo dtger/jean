@@ -1612,15 +1612,6 @@ export function useSendMessage() {
         queryClient.invalidateQueries({
           queryKey: chatQueryKeys.sessions(worktreeId),
         })
-        toast.error(
-          isDisconnect
-            ? 'Connection lost — refreshing...'
-            : 'Response timed out — refreshing...',
-          {
-            id: isDisconnect ? 'ws-disconnect-toast' : undefined,
-            description: 'Your message was likely processed successfully.',
-          }
-        )
         return
       }
 

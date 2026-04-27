@@ -24,19 +24,7 @@ import { useInstalledBackends } from '@/hooks/useInstalledBackends'
 import { useChatStore } from '@/store/chat-store'
 import type { McpHealthStatus } from '@/types/chat'
 import type { CliBackend } from '@/types/preferences'
-
-const SettingsSection: React.FC<{
-  title: string
-  children: React.ReactNode
-}> = ({ title, children }) => (
-  <div className="space-y-4">
-    <div>
-      <h3 className="text-lg font-medium text-foreground">{title}</h3>
-      <Separator className="mt-2" />
-    </div>
-    {children}
-  </div>
-)
+import { SettingsSection } from '../SettingsSection'
 
 function mcpAuthHint(backend: CliBackend): string {
   switch (backend) {
@@ -198,7 +186,10 @@ export const McpServersPane: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <SettingsSection title="Default MCP Servers">
+      <SettingsSection
+        title="Default MCP Servers"
+        anchorId="pref-mcp-section-default-servers"
+      >
         <p className="text-sm text-muted-foreground">
           Selected servers will be enabled by default in new sessions. You can
           override per-session from the toolbar.

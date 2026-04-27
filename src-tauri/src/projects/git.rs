@@ -829,6 +829,10 @@ pub struct PushResult {
     pub fell_back: bool,
     /// true when push failed due to permission/authentication errors (e.g. fork PR without write access)
     pub permission_denied: bool,
+    /// Remote actually pushed to (e.g., "origin" or a fork owner). None on fallback/denied.
+    pub pushed_remote: Option<String>,
+    /// Branch on pushed_remote that was updated. None on fallback/denied.
+    pub pushed_branch: Option<String>,
 }
 
 /// Check if a git push stderr indicates a permission/authentication error
@@ -879,6 +883,8 @@ pub fn git_push_to_pr(
             output,
             fell_back: true,
             permission_denied: false,
+            pushed_remote: None,
+            pushed_branch: None,
         });
     }
 
@@ -909,6 +915,8 @@ pub fn git_push_to_pr(
                 output: result,
                 fell_back: false,
                 permission_denied: false,
+                pushed_remote: Some("origin".to_string()),
+                pushed_branch: Some(head_ref_name.to_string()),
             });
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -918,6 +926,8 @@ pub fn git_push_to_pr(
                     output: stderr,
                     fell_back: false,
                     permission_denied: true,
+                    pushed_remote: None,
+                    pushed_branch: None,
                 });
             }
             log::warn!(
@@ -928,6 +938,8 @@ pub fn git_push_to_pr(
                 output: fallback_output,
                 fell_back: true,
                 permission_denied: false,
+                pushed_remote: None,
+                pushed_branch: None,
             });
         }
     }
@@ -1026,6 +1038,8 @@ pub fn git_push_to_pr(
             output: result,
             fell_back: false,
             permission_denied: false,
+            pushed_remote: Some(remote_name.clone()),
+            pushed_branch: Some(head_ref_name.to_string()),
         })
     } else {
         let stderr = String::from_utf8_lossy(&push_output.stderr).to_string();
@@ -1035,6 +1049,8 @@ pub fn git_push_to_pr(
                 output: stderr,
                 fell_back: false,
                 permission_denied: true,
+                pushed_remote: None,
+                pushed_branch: None,
             });
         }
         log::warn!("Failed to push to {remote_name}/{head_ref_name}, falling back to regular push: {stderr}");
@@ -1043,6 +1059,8 @@ pub fn git_push_to_pr(
             output: fallback_output,
             fell_back: true,
             permission_denied: false,
+            pushed_remote: None,
+            pushed_branch: None,
         })
     }
 }

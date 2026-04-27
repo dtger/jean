@@ -1,13 +1,42 @@
 //! Tauri commands for controlling background tasks
 
-use tauri::State;
+use std::collections::HashMap;
+
+use tauri::{AppHandle, State};
 
 use super::{
     BackgroundTaskManager, MAX_POLL_INTERVAL, MAX_REMOTE_POLL_INTERVAL, MIN_POLL_INTERVAL,
     MIN_REMOTE_POLL_INTERVAL,
 };
 use crate::projects::git_status::ActiveWorktreeInfo;
+use crate::projects::storage::load_projects_data;
 use serde::Deserialize;
+
+/// Look up persisted pr_push_remote/pr_push_branch for a worktree. Returns (None, None)
+/// if the worktree isn't found or projects data can't be loaded.
+fn lookup_pr_push_target(app: &AppHandle, worktree_id: &str) -> (Option<String>, Option<String>) {
+    match load_projects_data(app) {
+        Ok(data) => data
+            .worktrees
+            .iter()
+            .find(|w| w.id == worktree_id)
+            .map(|w| (w.pr_push_remote.clone(), w.pr_push_branch.clone()))
+            .unwrap_or((None, None)),
+        Err(_) => (None, None),
+    }
+}
+
+/// Build a map of worktree_id → (pr_push_remote, pr_push_branch) from persisted data.
+fn load_pr_push_targets(app: &AppHandle) -> HashMap<String, (Option<String>, Option<String>)> {
+    match load_projects_data(app) {
+        Ok(data) => data
+            .worktrees
+            .into_iter()
+            .map(|w| (w.id, (w.pr_push_remote, w.pr_push_branch)))
+            .collect(),
+        Err(_) => HashMap::new(),
+    }
+}
 
 /// Set the application focus state
 ///
@@ -27,6 +56,7 @@ pub fn set_app_focus_state(
 /// Pass null/None values to clear the active worktree and stop polling.
 #[tauri::command]
 pub fn set_active_worktree_for_polling(
+    app: AppHandle,
     state: State<'_, BackgroundTaskManager>,
     worktree_id: Option<String>,
     worktree_path: Option<String>,
@@ -35,13 +65,18 @@ pub fn set_active_worktree_for_polling(
     pr_url: Option<String>,
 ) -> Result<(), String> {
     let info = match (worktree_id, worktree_path, base_branch) {
-        (Some(id), Some(path), Some(branch)) => Some(ActiveWorktreeInfo {
-            worktree_id: id,
-            worktree_path: path,
-            base_branch: branch,
-            pr_number,
-            pr_url,
-        }),
+        (Some(id), Some(path), Some(branch)) => {
+            let (pr_push_remote, pr_push_branch) = lookup_pr_push_target(&app, &id);
+            Some(ActiveWorktreeInfo {
+                worktree_id: id,
+                worktree_path: path,
+                base_branch: branch,
+                pr_number,
+                pr_url,
+                pr_push_remote,
+                pr_push_branch,
+            })
+        }
         _ => None,
     };
 
@@ -137,17 +172,27 @@ pub struct PrWorktreeInfo {
 /// to detect PR merges even when the worktree isn't actively selected.
 #[tauri::command]
 pub fn set_pr_worktrees_for_polling(
+    app: AppHandle,
     state: State<'_, BackgroundTaskManager>,
     worktrees: Vec<PrWorktreeInfo>,
 ) -> Result<(), String> {
+    let push_targets = load_pr_push_targets(&app);
     let infos: Vec<ActiveWorktreeInfo> = worktrees
         .into_iter()
-        .map(|w| ActiveWorktreeInfo {
-            worktree_id: w.worktree_id,
-            worktree_path: w.worktree_path,
-            base_branch: w.base_branch,
-            pr_number: Some(w.pr_number),
-            pr_url: Some(w.pr_url),
+        .map(|w| {
+            let (pr_push_remote, pr_push_branch) = push_targets
+                .get(&w.worktree_id)
+                .cloned()
+                .unwrap_or((None, None));
+            ActiveWorktreeInfo {
+                worktree_id: w.worktree_id,
+                worktree_path: w.worktree_path,
+                base_branch: w.base_branch,
+                pr_number: Some(w.pr_number),
+                pr_url: Some(w.pr_url),
+                pr_push_remote,
+                pr_push_branch,
+            }
         })
         .collect();
     state.set_pr_worktrees(infos);
@@ -169,17 +214,27 @@ pub struct AllWorktreeInfo {
 /// to keep uncommitted diff stats up to date even when not actively selected.
 #[tauri::command]
 pub fn set_all_worktrees_for_polling(
+    app: AppHandle,
     state: State<'_, BackgroundTaskManager>,
     worktrees: Vec<AllWorktreeInfo>,
 ) -> Result<(), String> {
+    let push_targets = load_pr_push_targets(&app);
     let infos: Vec<ActiveWorktreeInfo> = worktrees
         .into_iter()
-        .map(|w| ActiveWorktreeInfo {
-            worktree_id: w.worktree_id,
-            worktree_path: w.worktree_path,
-            base_branch: w.base_branch,
-            pr_number: None,
-            pr_url: None,
+        .map(|w| {
+            let (pr_push_remote, pr_push_branch) = push_targets
+                .get(&w.worktree_id)
+                .cloned()
+                .unwrap_or((None, None));
+            ActiveWorktreeInfo {
+                worktree_id: w.worktree_id,
+                worktree_path: w.worktree_path,
+                base_branch: w.base_branch,
+                pr_number: None,
+                pr_url: None,
+                pr_push_remote,
+                pr_push_branch,
+            }
         })
         .collect();
     state.set_all_worktrees(infos);

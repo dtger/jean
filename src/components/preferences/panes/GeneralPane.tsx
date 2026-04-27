@@ -11,7 +11,6 @@ import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Loader2, ChevronDown, Check, ChevronsUpDown, Play } from 'lucide-react'
 import { Label } from '@/components/ui/label'
-import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
 import { BackendLabel } from '@/components/ui/backend-label'
@@ -148,28 +147,12 @@ import {
   setRemotePollInterval,
 } from '@/services/git-status'
 import { getPathUpdateAction } from '@/lib/cli-update'
+import { SettingsSection } from '../SettingsSection'
 
 interface CleanupResult {
   deleted_worktrees: number
   deleted_sessions: number
 }
-
-const SettingsSection: React.FC<{
-  title: React.ReactNode
-  actions?: React.ReactNode
-  children: React.ReactNode
-}> = ({ title, actions, children }) => (
-  <div className="space-y-4">
-    <div>
-      <div className="flex items-center gap-3">
-        <h3 className="text-lg font-medium text-foreground">{title}</h3>
-        {actions && <div className="flex items-center gap-2">{actions}</div>}
-      </div>
-      <Separator className="mt-2" />
-    </div>
-    {children}
-  </div>
-)
 
 const InlineField: React.FC<{
   label: string
@@ -636,8 +619,7 @@ export const GeneralPane: React.FC = () => {
   const selectedOpenCodeModelLabel =
     openCodeModelOptions.find(option => option.value === selectedOpenCodeModel)
       ?.label ?? formatOpenCodeModelLabelForSettings(selectedOpenCodeModel)
-  const selectedPiModel =
-    preferences?.selected_pi_model ?? 'pi/openai/gpt-5.5'
+  const selectedPiModel = preferences?.selected_pi_model ?? 'pi/openai/gpt-5.5'
   const piModelOptions = (
     availablePiModels?.length
       ? availablePiModels.map(model => ({
@@ -960,6 +942,7 @@ export const GeneralPane: React.FC = () => {
       {isNativeApp() && (
         <SettingsSection
           title="Claude CLI"
+          anchorId="pref-general-section-claude-cli"
           actions={
             cliStatus?.installed ? (
               checkingClaudeAuth || isClaudeAuthLoading ? (
@@ -1107,6 +1090,7 @@ export const GeneralPane: React.FC = () => {
       {isNativeApp() && (
         <SettingsSection
           title="GitHub CLI"
+          anchorId="pref-general-section-github-cli"
           actions={
             ghStatus?.installed ? (
               checkingGhAuth || isGhAuthLoading ? (
@@ -1249,7 +1233,15 @@ export const GeneralPane: React.FC = () => {
 
       {isNativeApp() && (
         <SettingsSection
-          title="Codex CLI"
+          title={
+            <>
+              Codex CLI{' '}
+              <span className="ml-1 rounded bg-primary/15 px-1 py-px text-[9px] font-semibold uppercase text-primary">
+                BETA
+              </span>
+            </>
+          }
+          anchorId="pref-general-section-codex-cli"
           actions={
             codexStatus?.installed ? (
               checkingCodexAuth || isCodexAuthLoading ? (
@@ -1401,7 +1393,15 @@ export const GeneralPane: React.FC = () => {
 
       {isNativeApp() && (
         <SettingsSection
-          title="OpenCode CLI"
+          title={
+            <>
+              OpenCode CLI{' '}
+              <span className="ml-1 rounded bg-primary/15 px-1 py-px text-[9px] font-semibold uppercase text-primary">
+                BETA
+              </span>
+            </>
+          }
+          anchorId="pref-general-section-opencode-cli"
           actions={
             opencodeStatus?.installed ? (
               checkingOpenCodeAuth || isOpenCodeAuthLoading ? (
@@ -1556,6 +1556,7 @@ export const GeneralPane: React.FC = () => {
       {isNativeApp() && (
         <SettingsSection
           title="Pi CLI"
+          anchorId="pref-general-section-pi-cli"
           actions={
             piStatus?.installed ? (
               <Button variant="outline" size="sm" onClick={handlePiLogin}>
@@ -1635,6 +1636,7 @@ export const GeneralPane: React.FC = () => {
               <span>CLI</span>
             </span>
           }
+          anchorId="pref-general-section-cursor-cli"
           actions={
             cursorStatus?.installed ? (
               checkingCursorAuth || isCursorAuthLoading ? (
@@ -1743,7 +1745,10 @@ export const GeneralPane: React.FC = () => {
         </SettingsSection>
       )}
 
-      <SettingsSection title="Defaults">
+      <SettingsSection
+        title="Defaults"
+        anchorId="pref-general-section-defaults"
+      >
         <div className="space-y-4">
           <InlineField
             label="Default backend"
@@ -1758,10 +1763,10 @@ export const GeneralPane: React.FC = () => {
               </SelectTrigger>
               <SelectContent>
                 {installedBackendOptions.map(option => (
-                    <SelectItem key={option.value} value={option.value}>
-                      <BackendLabel backend={option.value} />
-                    </SelectItem>
-                  ))}
+                  <SelectItem key={option.value} value={option.value}>
+                    <BackendLabel backend={option.value} />
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </InlineField>
@@ -2890,7 +2895,10 @@ export const GeneralPane: React.FC = () => {
         </div>
       </SettingsSection>
 
-      <SettingsSection title="Notifications">
+      <SettingsSection
+        title="Notifications"
+        anchorId="pref-general-section-notifications"
+      >
         <div className="space-y-4">
           <InlineField
             label="Waiting sound"
@@ -2966,7 +2974,10 @@ export const GeneralPane: React.FC = () => {
         </div>
       </SettingsSection>
 
-      <SettingsSection title="Auto-generate">
+      <SettingsSection
+        title="Auto-generate"
+        anchorId="pref-general-section-auto-generate"
+      >
         <div className="space-y-4">
           <InlineField
             label="Branch names"
@@ -2989,7 +3000,10 @@ export const GeneralPane: React.FC = () => {
         </div>
       </SettingsSection>
 
-      <SettingsSection title="Worktrees">
+      <SettingsSection
+        title="Worktrees"
+        anchorId="pref-general-section-worktrees"
+      >
         <div className="space-y-4">
           <InlineField
             label="Auto-pull base branch"
@@ -3057,7 +3071,7 @@ export const GeneralPane: React.FC = () => {
         </div>
       </SettingsSection>
 
-      <SettingsSection title="Archive">
+      <SettingsSection title="Archive" anchorId="pref-general-section-archive">
         <div className="space-y-4">
           <InlineField
             label="Confirm before closing"
@@ -3172,7 +3186,10 @@ export const GeneralPane: React.FC = () => {
       </SettingsSection>
 
       {isNativeApp() && (
-        <SettingsSection title="Troubleshooting">
+        <SettingsSection
+          title="Troubleshooting"
+          anchorId="pref-general-section-troubleshooting"
+        >
           <div className="space-y-4">
             <InlineField
               label="Application logs"

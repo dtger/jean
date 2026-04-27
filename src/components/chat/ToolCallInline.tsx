@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { usePreferences } from '@/services/preferences'
+import { useChatStore } from '@/store/chat-store'
 import {
   FileText,
   Edit,
@@ -26,6 +27,7 @@ import {
   FileCode,
   List,
   Code,
+  Activity,
 } from 'lucide-react'
 import { diffLines } from 'diff'
 import type { ToolCall } from '@/types/chat'
@@ -40,7 +42,11 @@ import {
 } from '@/components/ui/collapsible'
 
 function shouldRenderRawOutput(toolCall: ToolCall): boolean {
-  return Boolean(toolCall.output) && toolCall.name !== 'FileChange'
+  return (
+    Boolean(toolCall.output) &&
+    toolCall.name !== 'FileChange' &&
+    toolCall.name !== 'Monitor'
+  )
 }
 
 interface ToolCallInlineProps {
@@ -505,7 +511,7 @@ function SubToolItem({ toolCall, onFileClick }: SubToolItemProps) {
 interface ToolDisplay {
   icon: React.ReactNode
   label: string
-  detail?: string
+  detail?: React.ReactNode
   /** Full file path for file-related tools (Read, Edit, Write) */
   filePath?: string
   expandedContent: React.ReactNode
@@ -674,6 +680,78 @@ function FileChangeDiffView({ input }: { input: unknown }) {
       })}
     </div>
   )
+}
+
+function formatWakeupDelay(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return 'now'
+  if (seconds < 60) return `${Math.round(seconds)}s`
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.round(seconds % 60)
+  if (mins < 60) return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`
+  const hours = Math.floor(mins / 60)
+  const remMins = mins % 60
+  return remMins > 0 ? `${hours}h ${remMins}m` : `${hours}h`
+}
+
+/** Live-ticking remaining seconds for a pending ScheduleWakeup. */
+function useWakeupRemaining(fireAtUnix: number | undefined): number | null {
+  const [nowUnix, setNowUnix] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!fireAtUnix) {
+      setNowUnix(null)
+      return
+    }
+
+    const updateNow = () => setNowUnix(Math.floor(Date.now() / 1000))
+    updateNow()
+
+    const id = setInterval(updateNow, 1000)
+    return () => clearInterval(id)
+  }, [fireAtUnix])
+
+  if (!fireAtUnix || nowUnix === null) return null
+  return Math.max(0, fireAtUnix - nowUnix)
+}
+
+interface ScheduleWakeupIndicatorProps {
+  toolCallId: string
+  fallbackDelaySeconds?: number
+}
+
+/** Collapsed-row icon that reflects ScheduleWakeup status (pending/fired/cancelled).
+ *
+ * The wakeup scheduler in Rust emits `chat:wakeup_scheduled` → pending, and
+ * clears the entry from memory (not from chat history) when it fires or is
+ * cancelled. On app reload the `list_pending_wakeups` hydration pass seeds
+ * the store with every still-pending entry; anything *not* in the store by
+ * that point is assumed to have already fired in a prior session, so we
+ * render it as completed rather than spinning forever.
+ */
+function ScheduleWakeupIcon({ toolCallId }: ScheduleWakeupIndicatorProps) {
+  const entry = useChatStore(state => state.scheduledWakeups[toolCallId])
+  const status = entry?.status ?? 'fired'
+  if (status === 'pending') {
+    return <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+  }
+  if (status === 'cancelled') {
+    return <XCircle className="h-4 w-4 shrink-0" />
+  }
+  return <CheckCircle2 className="h-4 w-4 shrink-0" />
+}
+
+/** Collapsed-row detail text that live-ticks until fire_at_unix. */
+function ScheduleWakeupCountdown({ toolCallId }: ScheduleWakeupIndicatorProps) {
+  const entry = useChatStore(state => state.scheduledWakeups[toolCallId])
+  const remaining = useWakeupRemaining(entry?.fire_at_unix)
+  const status = entry?.status ?? 'fired'
+  if (status === 'cancelled') return <span>cancelled</span>
+  if (status === 'pending') {
+    if (remaining === null) return null
+    if (remaining <= 0) return <span>firing…</span>
+    return <span>fires in {formatWakeupDelay(remaining)}</span>
+  }
+  return <span>fired</span>
 }
 
 function getToolDisplay(toolCall: ToolCall): ToolDisplay {
@@ -1109,6 +1187,88 @@ function getToolDisplay(toolCall: ToolCall): ToolDisplay {
       }
     }
 
+    case 'ScheduleWakeup': {
+      const delaySeconds =
+        typeof input.delaySeconds === 'number' ? input.delaySeconds : undefined
+      const prompt = typeof input.prompt === 'string' ? input.prompt : undefined
+      const reason = typeof input.reason === 'string' ? input.reason : undefined
+      const bodyParts: string[] = []
+      if (reason) bodyParts.push(`**Reason:** ${reason}`)
+      if (prompt) bodyParts.push(`**Prompt:**\n\n${prompt}`)
+      const markdownBody = bodyParts.join('\n\n')
+      return {
+        icon: (
+          <ScheduleWakeupIcon
+            toolCallId={toolCall.id}
+            fallbackDelaySeconds={delaySeconds}
+          />
+        ),
+        label: 'Scheduled Wakeup',
+        detail: (
+          <ScheduleWakeupCountdown
+            toolCallId={toolCall.id}
+            fallbackDelaySeconds={delaySeconds}
+          />
+        ),
+        expandedContent: markdownBody ? (
+          <Markdown>{markdownBody}</Markdown>
+        ) : (
+          JSON.stringify(input, null, 2)
+        ),
+      }
+    }
+
+    case 'Monitor': {
+      const description =
+        typeof input.description === 'string' ? input.description : undefined
+      const command =
+        typeof input.command === 'string' ? input.command : undefined
+      // Live events come from Zustand during an active run. After reload,
+      // events are reconstructed from tool_call.output (multi-line string
+      // written by parse_run_to_message). Each line is "<unix_ms>|<text>"
+      // so real relative timestamps survive session reload.
+      let events = toolCall.events ?? []
+      if (events.length === 0 && toolCall.output) {
+        events = toolCall.output
+          .split('\n')
+          .filter(l => l.length > 0)
+          .map((line, idx) => {
+            const sep = line.indexOf('|')
+            if (sep > 0) {
+              const tsStr = line.slice(0, sep)
+              const text = line.slice(sep + 1)
+              const ts = Number.parseInt(tsStr, 10)
+              if (Number.isFinite(ts)) {
+                return {
+                  kind: 'monitor_event' as const,
+                  payload: { text },
+                  ts_ms: ts,
+                }
+              }
+            }
+            return {
+              kind: 'monitor_event' as const,
+              payload: { text: line },
+              ts_ms: idx,
+            }
+          })
+      }
+      const status: NonNullable<ToolCall['status']> =
+        toolCall.status ??
+        (toolCall.output ? 'done' : events.length > 0 ? 'running' : 'armed')
+      const label = description ? `Monitor: ${description}` : 'Monitor'
+      return {
+        icon: <Activity className="h-4 w-4 shrink-0" />,
+        label,
+        detail: (
+          <MonitorStatusBadge status={status} eventCount={events.length} />
+        ),
+        expandedContent: (
+          <MonitorExpanded command={command} events={events} status={status} />
+        ),
+      }
+    }
+
     default: {
       const isMcpTool = toolCall.name.startsWith('mcp__')
       return {
@@ -1118,5 +1278,173 @@ function getToolDisplay(toolCall: ToolCall): ToolDisplay {
         expandedContent: JSON.stringify(input, null, 2),
       }
     }
+  }
+}
+
+// -- Monitor renderer helpers ------------------------------------------------
+
+function MonitorStatusBadge({
+  status,
+  eventCount,
+}: {
+  status: NonNullable<ToolCall['status']>
+  eventCount: number
+}) {
+  const tone =
+    status === 'done'
+      ? 'text-green-600 dark:text-green-400'
+      : status === 'error' || status === 'timeout'
+        ? 'text-red-600 dark:text-red-400'
+        : 'text-amber-600 dark:text-amber-400'
+  const label =
+    status === 'armed' ? 'armed' : status === 'running' ? 'running' : status
+  return (
+    <span className={cn('font-mono text-[11px]', tone)}>
+      {label}
+      {eventCount > 0
+        ? ` · ${eventCount} event${eventCount === 1 ? '' : 's'}`
+        : ''}
+    </span>
+  )
+}
+
+function MonitorExpanded({
+  command,
+  events,
+  status,
+}: {
+  command: string | undefined
+  events: NonNullable<ToolCall['events']>
+  status: NonNullable<ToolCall['status']>
+}) {
+  const isActive =
+    status !== 'done' && status !== 'error' && status !== 'timeout'
+  return (
+    <div className="space-y-2">
+      {command ? (
+        <div>
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            Command
+          </div>
+          <pre className="mt-1 whitespace-pre-wrap break-all rounded bg-muted/50 p-2 font-mono text-[11px]">
+            {command}
+          </pre>
+        </div>
+      ) : null}
+      <div>
+        <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-muted-foreground">
+          <span>Live events</span>
+          {isActive ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+        </div>
+        {events.length === 0 ? (
+          <div className="mt-1 text-[11px] italic text-muted-foreground">
+            {status === 'armed' ? 'Waiting for events…' : 'No events emitted.'}
+          </div>
+        ) : (
+          <div className="mt-1 max-h-64 divide-y divide-border/30 overflow-auto rounded bg-muted/50 p-2 font-mono text-[11px]">
+            {events.map((ev, i) => {
+              const text = formatMonitorEventText(ev)
+              return (
+                <div
+                  key={`${ev.ts_ms}-${i}`}
+                  className="py-1 first:pt-0 last:pb-0"
+                >
+                  <span
+                    className={cn(
+                      'whitespace-pre-wrap break-all',
+                      ev.kind === 'monitor_status' &&
+                        'text-amber-600 dark:text-amber-400',
+                      ev.kind === 'monitor_done' &&
+                        'text-green-600 dark:text-green-400'
+                    )}
+                  >
+                    {text}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function formatMonitorEventText(
+  ev: NonNullable<ToolCall['events']>[number]
+): string {
+  const p = ev.payload as Record<string, unknown> | null
+
+  // System-lifecycle events from Claude CLI:
+  //   { type: "system", subtype: "task_started" | "task_updated" | "task_notification", ... }
+  if (p && (p.type === 'system' || typeof p.subtype === 'string')) {
+    const subtype =
+      typeof p.subtype === 'string' ? (p.subtype as string) : undefined
+    if (subtype === 'task_started') {
+      const desc = typeof p.description === 'string' ? p.description : ''
+      return `task started${desc ? ` — ${desc}` : ''}`
+    }
+    if (subtype === 'task_updated') {
+      const patch = (p.patch as Record<string, unknown> | undefined) ?? {}
+      const status =
+        typeof patch.status === 'string' ? (patch.status as string) : 'updated'
+      return `task ${status}`
+    }
+    if (subtype === 'task_notification') {
+      const status =
+        typeof p.status === 'string' ? (p.status as string) : 'update'
+      const summary = typeof p.summary === 'string' ? p.summary : ''
+      return `${status}${summary ? ` — ${summary}` : ''}`
+    }
+  }
+
+  if (ev.kind === 'monitor_status') {
+    const status = (p as { status?: string } | null)?.status
+    return `status: ${status ?? 'unknown'}`
+  }
+  if (ev.kind === 'monitor_done') {
+    const status = (p as { status?: string } | null)?.status
+    return `monitor ${status ?? 'done'}`
+  }
+
+  // monitor_event: payload may be a tool_result block ({content: string | array}),
+  // an assistant-text payload ({type:"text", text}), or a system notification.
+  if (p) {
+    // Direct text-ish fields (assistant-text payload, system summary, etc.)
+    for (const key of ['text', 'summary', 'line', 'output', 'message']) {
+      const v = p[key]
+      if (typeof v === 'string' && v.length > 0) return v
+    }
+    // tool_result.content as string
+    const content = p.content
+    if (typeof content === 'string' && content.length > 0) return content
+    // tool_result.content as array → concat text fields with real newlines
+    if (Array.isArray(content)) {
+      const parts: string[] = []
+      for (const item of content) {
+        if (item && typeof item === 'object') {
+          const t = (item as { text?: unknown }).text
+          if (typeof t === 'string') parts.push(t)
+        }
+      }
+      if (parts.length > 0) return parts.join('\n')
+    }
+    // Nested message.content[].text (for user-message broadcasts)
+    const nested = (p as { message?: { content?: unknown } }).message?.content
+    if (Array.isArray(nested)) {
+      const parts: string[] = []
+      for (const b of nested) {
+        if (b && typeof b === 'object') {
+          const t = (b as { text?: unknown }).text
+          if (typeof t === 'string') parts.push(t)
+        }
+      }
+      if (parts.length > 0) return parts.join('\n')
+    }
+  }
+  try {
+    return JSON.stringify(ev.payload)
+  } catch {
+    return '(event)'
   }
 }

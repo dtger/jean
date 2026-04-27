@@ -46,6 +46,7 @@ import { useBackgroundInvestigation } from './hooks/useBackgroundInvestigation'
 import { useAutoArchiveOnMerge } from './hooks/useAutoArchiveOnMerge'
 import { useMagicPromptAutoDefaults } from './hooks/useMagicPromptAutoDefaults'
 import useStreamingEvents from './components/chat/hooks/useStreamingEvents'
+import { hydrateRunningSnapshot } from './lib/hydrate-running-snapshot'
 import { preloadAllSounds } from './lib/sounds'
 import {
   beginSessionStateHydration,
@@ -60,6 +61,18 @@ function WebLoadingScreen() {
       <div className="flex flex-col items-center gap-3">
         <div className="size-6 animate-spin rounded-full border-2 border-muted border-t-primary" />
         <span className="text-sm text-muted-foreground">Loading...</span>
+      </div>
+    </div>
+  )
+}
+
+/** Full-screen overlay shown while the WebSocket reconnects so stale cached data isn't visible. */
+function WsReconnectOverlay() {
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+      <div className="flex flex-col items-center gap-3">
+        <div className="size-6 animate-spin rounded-full border-2 border-muted border-t-primary" />
+        <span className="text-sm text-muted-foreground">Reconnecting…</span>
       </div>
     </div>
   )
@@ -89,20 +102,6 @@ function WsAuthErrorOverlay() {
           <h2 className="text-sm font-semibold">Connection Failed</h2>
         </div>
         <p className="mt-2 text-sm text-muted-foreground">{authError}</p>
-      </div>
-    </div>
-  )
-}
-
-function WsReconnectingOverlay() {
-  return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-background/90 backdrop-blur-sm">
-      <div className="flex flex-col items-center gap-3">
-        <div className="size-6 animate-spin rounded-full border-2 border-muted border-t-primary" />
-        <div className="text-sm font-medium">Reconnecting...</div>
-        <div className="text-xs text-muted-foreground">
-          Reloading session state
-        </div>
       </div>
     </div>
   )
@@ -463,7 +462,6 @@ function App() {
   // On reconnect: re-fetch bulk data via HTTP to restore everything fast.
   const wsConnected = useWsConnectionStatus()
   const wsDataReady = useWsDataReady()
-  const wsAuthError = useWsAuthError()
   const hadWsConnectionRef = useRef(false)
   useEffect(() => {
     if (isNativeApp() || !wsConnected) return
@@ -880,21 +878,7 @@ function App() {
                 }
               }
 
-              if (!store.streamingContentBlocks[session.session_id]?.length) {
-                for (const block of lastMsg.content_blocks ?? []) {
-                  if (block.type === 'text') {
-                    store.addTextBlock(session.session_id, block.text)
-                  } else if (block.type === 'tool_use') {
-                    store.addToolBlock(session.session_id, block.tool_call_id)
-                  } else if (block.type === 'thinking') {
-                    store.addThinkingBlock(session.session_id, block.thinking)
-                  }
-                }
-
-                for (const tc of lastMsg.tool_calls ?? []) {
-                  store.addToolCall(session.session_id, tc)
-                }
-              }
+              hydrateRunningSnapshot(session.session_id, lastMsg)
 
               queryClient.setQueryData<Session>(
                 chatQueryKeys.session(session.session_id),
@@ -948,14 +932,13 @@ function App() {
     return <WebLoadingScreen />
   }
 
-  const showReconnectOverlay =
-    !isNativeApp() && hadWsConnectionRef.current && !wsDataReady && !wsAuthError
-
   return (
     <ErrorBoundary>
       <ThemeProvider>
         <MainWindow />
-        {showReconnectOverlay && <WsReconnectingOverlay />}
+        {!isNativeApp() && !isPreloading && !wsDataReady && (
+          <WsReconnectOverlay />
+        )}
         {!isNativeApp() && <WsAuthErrorOverlay />}
       </ThemeProvider>
     </ErrorBoundary>

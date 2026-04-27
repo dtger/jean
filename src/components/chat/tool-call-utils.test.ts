@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildTimeline,
+  coalesceContentBlocks,
   isDuplicatePlanTextBlock,
   resolvePlanContent,
   splitTextAroundPlan,
 } from './tool-call-utils'
-import type { ToolCall } from '@/types/chat'
+import type { ContentBlock, ToolCall } from '@/types/chat'
 
 describe('splitTextAroundPlan', () => {
   it('separates prose before a trailing plan block', () => {
@@ -159,5 +161,99 @@ describe('isDuplicatePlanTextBlock', () => {
         '1. Do you want me to switch out of plan mode?'
       )
     ).toBe(false)
+  })
+})
+
+describe('coalesceContentBlocks', () => {
+  it('merges consecutive text blocks into one', () => {
+    const input: ContentBlock[] = [
+      { type: 'text', text: 'Hello ' },
+      { type: 'text', text: 'world' },
+    ]
+    expect(coalesceContentBlocks(input)).toEqual([
+      { type: 'text', text: 'Hello world' },
+    ])
+  })
+
+  it('preserves tool_use and thinking boundaries', () => {
+    const input: ContentBlock[] = [
+      { type: 'text', text: 'a' },
+      { type: 'tool_use', tool_call_id: 't1' },
+      { type: 'text', text: 'b1' },
+      { type: 'text', text: 'b2' },
+      { type: 'thinking', thinking: 'pondering' },
+      { type: 'text', text: 'c' },
+    ]
+    expect(coalesceContentBlocks(input)).toEqual([
+      { type: 'text', text: 'a' },
+      { type: 'tool_use', tool_call_id: 't1' },
+      { type: 'text', text: 'b1b2' },
+      { type: 'thinking', thinking: 'pondering' },
+      { type: 'text', text: 'c' },
+    ])
+  })
+
+  it('is idempotent', () => {
+    const input: ContentBlock[] = [
+      { type: 'text', text: 'one' },
+      { type: 'text', text: 'two' },
+      { type: 'tool_use', tool_call_id: 't1' },
+      { type: 'text', text: 'three' },
+      { type: 'text', text: 'four' },
+    ]
+    const once = coalesceContentBlocks(input)
+    const twice = coalesceContentBlocks(once)
+    expect(twice).toEqual(once)
+  })
+
+  it('preserves paragraph separators embedded in deltas', () => {
+    const input: ContentBlock[] = [
+      { type: 'text', text: 'para1' },
+      { type: 'text', text: '\n\npara2' },
+    ]
+    expect(coalesceContentBlocks(input)).toEqual([
+      { type: 'text', text: 'para1\n\npara2' },
+    ])
+  })
+})
+
+describe('buildTimeline with fragmented text deltas', () => {
+  it('renders fragmented text as one paragraph item', () => {
+    const blocks: ContentBlock[] = [
+      { type: 'text', text: 'para1' },
+      { type: 'text', text: '\n\npara2' },
+    ]
+    const timeline = buildTimeline(blocks, [])
+    expect(timeline).toHaveLength(1)
+    expect(timeline[0]).toMatchObject({
+      type: 'text',
+      text: 'para1\n\npara2',
+    })
+  })
+
+  it('tool grouping matches streaming when text deltas surround tools', () => {
+    const tools: ToolCall[] = [
+      { id: 'A', name: 'Read', input: {}, output: 'ok' },
+      { id: 'B', name: 'Grep', input: {}, output: 'ok' },
+      { id: 'C', name: 'Glob', input: {}, output: 'ok' },
+    ]
+    const blocks: ContentBlock[] = [
+      { type: 'text', text: 'intro-' },
+      { type: 'text', text: 'start' },
+      { type: 'tool_use', tool_call_id: 'A' },
+      { type: 'tool_use', tool_call_id: 'B' },
+      { type: 'text', text: 'mid-' },
+      { type: 'text', text: 'summary' },
+      { type: 'tool_use', tool_call_id: 'C' },
+    ]
+    const timeline = buildTimeline(blocks, tools)
+    expect(timeline.map(i => i.type)).toEqual([
+      'text',
+      'stackedGroup',
+      'text',
+      'standalone',
+    ])
+    expect(timeline[0]).toMatchObject({ text: 'intro-start' })
+    expect(timeline[2]).toMatchObject({ text: 'mid-summary' })
   })
 })

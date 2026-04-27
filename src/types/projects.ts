@@ -151,6 +151,10 @@ export interface Worktree {
   cached_worktree_ahead_count?: number
   /** Cached unpushed count (commits not yet pushed to origin/current_branch) */
   cached_unpushed_count?: number
+  /** Remote most recently pushed to for the PR (e.g. "origin" or a fork owner) */
+  pr_push_remote?: string
+  /** Branch on pr_push_remote most recently pushed to */
+  pr_push_branch?: string
   /** User-assigned label with color (e.g. "In Progress") */
   label?: LabelData
   /** Display order within project (lower = higher in list, base sessions ignore this) */

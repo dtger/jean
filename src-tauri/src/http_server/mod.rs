@@ -162,6 +162,9 @@ impl WsBroadcaster {
 /// Use `app.emit_all("event", &payload)` instead of `app.emit("event", &payload)`.
 pub trait EmitExt {
     fn emit_all<S: Serialize + Clone>(&self, event: &str, payload: &S) -> Result<(), String>;
+    /// Like `emit_all` but takes ownership of the payload, avoiding a caller-side clone
+    /// on the hot path (e.g. high-frequency terminal output chunks).
+    fn emit_all_owned<S: Serialize + Clone>(&self, event: &str, payload: S) -> Result<(), String>;
 }
 
 impl EmitExt for AppHandle {
@@ -175,6 +178,19 @@ impl EmitExt for AppHandle {
         if let Some(ws) = self.try_state::<WsBroadcaster>() {
             ws.broadcast(event, payload);
         }
+
+        Ok(())
+    }
+
+    fn emit_all_owned<S: Serialize + Clone>(&self, event: &str, payload: S) -> Result<(), String> {
+        // Broadcast to WebSocket clients first (borrows payload, no clone needed here).
+        if let Some(ws) = self.try_state::<WsBroadcaster>() {
+            ws.broadcast(event, &payload);
+        }
+
+        // Send to Tauri frontend — consumes payload (Tauri's emit requires Clone internally).
+        self.emit(event, payload)
+            .map_err(|e| format!("Tauri emit failed: {e}"))?;
 
         Ok(())
     }

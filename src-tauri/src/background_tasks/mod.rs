@@ -70,6 +70,10 @@ pub const DEFAULT_USAGE_POLL_INTERVAL: u64 = 300;
 /// Default combined-context cleanup interval in seconds (1 hour)
 pub const DEFAULT_CLEANUP_POLL_INTERVAL: u64 = 3600;
 
+/// Wakeup scheduler tick interval (seconds). How often we scan for
+/// `ScheduledWakeup` entries whose `fire_at_unix <= now`.
+pub const DEFAULT_WAKEUP_POLL_INTERVAL: u64 = 10;
+
 fn now_unix_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -137,6 +141,8 @@ pub struct BackgroundTaskManager {
     usage_poll_in_flight: Arc<AtomicBool>,
     /// Timestamp of last combined-context cleanup sweep
     last_cleanup_poll_time: Arc<AtomicU64>,
+    /// Timestamp of last wakeup scheduler tick
+    last_wakeup_poll_time: Arc<AtomicU64>,
 }
 
 impl BackgroundTaskManager {
@@ -165,6 +171,9 @@ impl BackgroundTaskManager {
             // Initialize to "now" so startup does not trigger an immediate cleanup
             // (the startup cleanup in cleanup_old_archives already handles that).
             last_cleanup_poll_time: Arc::new(AtomicU64::new(now_unix_secs())),
+            // Initialize to 0 so the first tick fires promptly after startup,
+            // allowing any wakeups that expired while the app was closed to run.
+            last_wakeup_poll_time: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -198,6 +207,7 @@ impl BackgroundTaskManager {
         let last_usage_poll_time = Arc::clone(&self.last_usage_poll_time);
         let usage_poll_in_flight = Arc::clone(&self.usage_poll_in_flight);
         let last_cleanup_poll_time = Arc::clone(&self.last_cleanup_poll_time);
+        let last_wakeup_poll_time = Arc::clone(&self.last_wakeup_poll_time);
         let usage_poll_enabled = usage_polling_enabled();
 
         thread::spawn(move || {
@@ -284,6 +294,22 @@ impl BackgroundTaskManager {
                                     log::warn!("Background pasted-files cleanup failed: {e}");
                                 }
                             }
+                        });
+                    }
+                }
+
+                // ================================================================
+                // Wakeup scheduler tick (runs regardless of focus/active worktree)
+                // Fires any ScheduleWakeup entries whose fire_at_unix <= now.
+                // ================================================================
+                {
+                    let now = now_unix_secs();
+                    let last_wakeup = last_wakeup_poll_time.load(Ordering::Relaxed);
+                    if now.saturating_sub(last_wakeup) >= DEFAULT_WAKEUP_POLL_INTERVAL {
+                        last_wakeup_poll_time.store(now, Ordering::Relaxed);
+                        let app_handle = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            crate::chat::wakeup::fire_due(&app_handle);
                         });
                     }
                 }

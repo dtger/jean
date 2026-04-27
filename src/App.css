@@ -541,6 +541,24 @@ kbd {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+/* Settings search highlight flash */
+@keyframes settings-highlight-flash {
+  0%,
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
+  15% {
+    background-color: color-mix(in srgb, var(--primary) 12%, transparent);
+    box-shadow:
+      0 0 0 8px color-mix(in srgb, var(--primary) 12%, transparent),
+      0 0 0 10px color-mix(in srgb, var(--primary) 25%, transparent);
+  }
+}
+.settings-search-highlight {
+  animation: settings-highlight-flash 1.8s ease-out;
+  border-radius: calc(var(--radius) - 2px);
+}
 
 /* Number input spinner — invert arrows in dark mode so they're visible */
 .dark input[type='number']::-webkit-inner-spin-button,

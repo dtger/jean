@@ -1,7 +1,8 @@
-import React, { useCallback, useMemo } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { usePreferences, usePatchPreferences } from '@/services/preferences'
+import { cn } from '@/lib/utils'
 import { KeyRecorder } from '../KeyRecorder'
 import {
   KEYBINDING_DEFINITIONS,
@@ -9,6 +10,12 @@ import {
   type KeybindingAction,
   type KeybindingDefinition,
 } from '@/types/keybindings'
+
+const KEYBINDING_HIGHLIGHT_DURATION_MS = 1800
+
+export function getKeybindingRowId(action: KeybindingAction): string {
+  return `settings-keybinding-${action}`
+}
 
 const SettingsSection: React.FC<{
   title: string
@@ -29,8 +36,25 @@ const KeybindingRow: React.FC<{
   onChange: (action: KeybindingAction, shortcut: string) => void
   checkConflict: (shortcut: string) => string | null
   disabled: boolean
-}> = ({ definition, value, onChange, checkConflict, disabled }) => (
-  <div className="flex items-center gap-3">
+  rowId?: string
+  highlighted?: boolean
+}> = ({
+  definition,
+  value,
+  onChange,
+  checkConflict,
+  disabled,
+  rowId,
+  highlighted = false,
+}) => (
+  <div
+    id={rowId}
+    data-settings-target={definition.action}
+    className={cn(
+      'flex items-center gap-3 rounded-md px-2 py-1 transition-colors',
+      highlighted ? 'bg-accent/60 ring-1 ring-border' : ''
+    )}
+  >
     <div className="w-48 shrink-0">
       <Label className="text-xs text-foreground">{definition.label}</Label>
     </div>
@@ -52,9 +76,18 @@ const categoryTitles: Record<string, string> = {
 
 const categoryOrder = ['chat', 'navigation', 'git']
 
-export const KeybindingsPane: React.FC = () => {
+interface KeybindingsPaneProps {
+  searchTargetAction?: KeybindingAction | null
+}
+
+export const KeybindingsPane: React.FC<KeybindingsPaneProps> = ({
+  searchTargetAction = null,
+}) => {
   const { data: preferences } = usePreferences()
   const patchPreferences = usePatchPreferences()
+  const [highlightedAction, setHighlightedAction] =
+    useState<KeybindingAction | null>(null)
+  const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   const keybindings = preferences?.keybindings ?? DEFAULT_KEYBINDINGS
 
@@ -106,6 +139,33 @@ export const KeybindingsPane: React.FC = () => {
     [preferences, keybindings, patchPreferences, findConflict]
   )
 
+  useEffect(() => {
+    return () => {
+      if (highlightTimeoutRef.current) {
+        clearTimeout(highlightTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!searchTargetAction) return
+
+    const targetId = getKeybindingRowId(searchTargetAction)
+    const target = document.getElementById(targetId)
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+
+    setHighlightedAction(searchTargetAction)
+    if (highlightTimeoutRef.current) {
+      clearTimeout(highlightTimeoutRef.current)
+    }
+    highlightTimeoutRef.current = setTimeout(() => {
+      setHighlightedAction(current =>
+        current === searchTargetAction ? null : current
+      )
+      highlightTimeoutRef.current = null
+    }, KEYBINDING_HIGHLIGHT_DURATION_MS)
+  }, [searchTargetAction])
+
   return (
     <div className="space-y-4">
       {categoryOrder.map(category => {
@@ -128,6 +188,8 @@ export const KeybindingsPane: React.FC = () => {
                     findConflict(def.action, shortcut)
                   }
                   disabled={patchPreferences.isPending}
+                  rowId={getKeybindingRowId(def.action)}
+                  highlighted={highlightedAction === def.action}
                 />
               ))}
             </div>

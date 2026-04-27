@@ -128,7 +128,8 @@ export function DirectoryBrowser({
     onOpenChange(false)
   }, [mode, nameInput, onOpenChange, onSelect, result])
 
-  const primaryLabel = mode === 'select' ? 'Select current folder' : 'Choose location'
+  const primaryLabel =
+    mode === 'select' ? 'Select current folder' : 'Choose location'
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

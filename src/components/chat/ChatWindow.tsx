@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { invoke, listen } from '@/lib/transport'
+import { hydrateRunningSnapshot } from '@/lib/hydrate-running-snapshot'
 import { GitBranch, GitMerge, Layers, Loader2 } from 'lucide-react'
 import {
   useSession,
@@ -136,7 +137,6 @@ import { buildMcpConfigJson } from '@/services/mcp'
 import type { McpServerInfo } from '@/types/chat'
 import { useGitStatus } from '@/services/git-status'
 import { useRemotePicker } from '@/hooks/useRemotePicker'
-import { isNativeApp } from '@/lib/environment'
 import { supportsAdaptiveThinking } from '@/lib/model-utils'
 import { copyToClipboard, copyHtmlToClipboard } from '@/lib/clipboard'
 import { useClaudeCliStatus } from '@/services/claude-cli'
@@ -411,6 +411,22 @@ export function ChatWindow({
     activeWorktreeId,
     activeWorktreePath
   )
+
+  // Rebuild streamingContentBlocks from snapshot when opening a session whose
+  // last message is still running. Covers web-access click-to-open, sidebar
+  // navigation, and any other entry that bypasses App.tsx auto-resume.
+  useEffect(() => {
+    if (!deferredSessionId || !session) return
+    // Skip hydration while THIS client is actively sending — live chat:chunk
+    // rebuilds streaming state incrementally. Injecting a refetched running
+    // snapshot mid-send duplicates the prior assistant bubble (see answer
+    // submission flow in handleQuestionAnswer).
+    if (useChatStore.getState().sendingSessionIds[deferredSessionId]) return
+    const lastMsg = session.messages.at(-1)
+    if (lastMsg?.role === 'assistant' && lastMsg.id.startsWith('running-')) {
+      hydrateRunningSnapshot(deferredSessionId, lastMsg)
+    }
+  }, [deferredSessionId, session])
 
   const loadOlderMessages = useLoadOlderMessages()
   const loadedRunStartIndex = session?.loaded_run_start_index ?? 0
@@ -1101,8 +1117,7 @@ export function ChatWindow({
         (yoloBackend === 'codex'
           ? (preferences?.selected_codex_model ?? 'gpt-5.4')
           : yoloBackend === 'pi'
-            ? (preferences?.selected_pi_model ??
-              'pi/openai/gpt-5.5')
+            ? (preferences?.selected_pi_model ?? 'pi/openai/gpt-5.5')
             : yoloBackend === 'opencode'
               ? (preferences?.selected_opencode_model ??
                 'opencode/gpt-5.3-codex')
@@ -1275,8 +1290,7 @@ export function ChatWindow({
         (buildBackend === 'codex'
           ? (preferences?.selected_codex_model ?? 'gpt-5.4')
           : buildBackend === 'pi'
-            ? (preferences?.selected_pi_model ??
-              'pi/openai/gpt-5.5')
+            ? (preferences?.selected_pi_model ?? 'pi/openai/gpt-5.5')
             : buildBackend === 'opencode'
               ? (preferences?.selected_opencode_model ??
                 'opencode/gpt-5.3-codex')
@@ -1530,8 +1544,7 @@ export function ChatWindow({
         (modeBackend === 'codex'
           ? (preferences?.selected_codex_model ?? 'gpt-5.4')
           : modeBackend === 'pi'
-            ? (preferences?.selected_pi_model ??
-              'pi/openai/gpt-5.5')
+            ? (preferences?.selected_pi_model ?? 'pi/openai/gpt-5.5')
             : modeBackend === 'opencode'
               ? (preferences?.selected_opencode_model ??
                 'opencode/gpt-5.3-codex')
@@ -2716,7 +2729,13 @@ export function ChatWindow({
                                 (todoSourceMessageId !== null &&
                                   todoSourceMessageId !==
                                     dismissedTodoMessageId)) && (
-                                <div className="px-4 md:px-6 pt-2 xl:hidden">
+                                <div
+                                  className={
+                                    terminalPanelOpen
+                                      ? 'px-4 md:px-6 pt-2'
+                                      : 'px-4 md:px-6 pt-2 xl:hidden'
+                                  }
+                                >
                                   <TodoWidget
                                     todos={normalizeTodosForDisplay(
                                       activeTodos,
@@ -2738,7 +2757,13 @@ export function ChatWindow({
                                 (agentSourceMessageId !== null &&
                                   agentSourceMessageId !==
                                     dismissedAgentMessageId)) && (
-                                <div className="px-4 md:px-6 pt-2 xl:hidden">
+                                <div
+                                  className={
+                                    terminalPanelOpen
+                                      ? 'px-4 md:px-6 pt-2'
+                                      : 'px-4 md:px-6 pt-2 xl:hidden'
+                                  }
+                                >
                                   <AgentWidget
                                     agents={activeAgents}
                                     isStreaming={agentIsFromStreaming}
@@ -2878,73 +2903,72 @@ export function ChatWindow({
                           </form>
 
                           {/* Side panel widgets (Tasks + Agents) for wide screens */}
-                          {(activeTodos.length > 0 ||
-                            activeAgents.length > 0) && (
-                            <div className="hidden xl:flex flex-col gap-2 absolute left-full bottom-0 ml-3 w-64 z-20">
-                              {activeTodos.length > 0 &&
-                                (dismissedTodoMessageId === null ||
-                                  (todoSourceMessageId !== null &&
-                                    todoSourceMessageId !==
-                                      dismissedTodoMessageId)) && (
-                                  <TodoWidget
-                                    todos={normalizeTodosForDisplay(
-                                      activeTodos,
-                                      isFromStreaming
-                                    )}
-                                    isStreaming={isSending}
-                                    onClose={() =>
-                                      setDismissedTodoMessageId(
-                                        todoSourceMessageId ?? '__streaming__'
-                                      )
-                                    }
-                                  />
-                                )}
-                              {activeAgents.length > 0 &&
-                                (dismissedAgentMessageId === null ||
-                                  (agentSourceMessageId !== null &&
-                                    agentSourceMessageId !==
-                                      dismissedAgentMessageId)) && (
-                                  <AgentWidget
-                                    agents={activeAgents}
-                                    isStreaming={agentIsFromStreaming}
-                                    onClose={() =>
-                                      setDismissedAgentMessageId(
-                                        agentSourceMessageId ?? '__streaming__'
-                                      )
-                                    }
-                                  />
-                                )}
-                            </div>
-                          )}
+                          {!terminalPanelOpen &&
+                            (activeTodos.length > 0 ||
+                              activeAgents.length > 0) && (
+                              <div className="hidden xl:flex flex-col gap-2 absolute left-full bottom-0 ml-3 w-64 z-20">
+                                {activeTodos.length > 0 &&
+                                  (dismissedTodoMessageId === null ||
+                                    (todoSourceMessageId !== null &&
+                                      todoSourceMessageId !==
+                                        dismissedTodoMessageId)) && (
+                                    <TodoWidget
+                                      todos={normalizeTodosForDisplay(
+                                        activeTodos,
+                                        isFromStreaming
+                                      )}
+                                      isStreaming={isSending}
+                                      onClose={() =>
+                                        setDismissedTodoMessageId(
+                                          todoSourceMessageId ?? '__streaming__'
+                                        )
+                                      }
+                                    />
+                                  )}
+                                {activeAgents.length > 0 &&
+                                  (dismissedAgentMessageId === null ||
+                                    (agentSourceMessageId !== null &&
+                                      agentSourceMessageId !==
+                                        dismissedAgentMessageId)) && (
+                                    <AgentWidget
+                                      agents={activeAgents}
+                                      isStreaming={agentIsFromStreaming}
+                                      onClose={() =>
+                                        setDismissedAgentMessageId(
+                                          agentSourceMessageId ??
+                                            '__streaming__'
+                                        )
+                                      }
+                                    />
+                                  )}
+                              </div>
+                            )}
                         </div>
                       </div>
                     </div>
                   </div>
                 </ResizablePanel>
 
-                {/* Terminal panel - only render when panel is open (native app only, not in modal) */}
-                {!isModal &&
-                  isNativeApp() &&
-                  activeWorktreePath &&
-                  terminalPanelOpen && (
-                    <>
-                      <ResizableHandle withHandle />
-                      <ResizablePanel
-                        ref={terminalPanelRef}
-                        defaultSize={terminalVisible ? 30 : 4}
-                        minSize={terminalVisible ? 15 : 4}
-                        collapsible
-                        collapsedSize={4}
-                        onCollapse={handleTerminalCollapse}
+                {/* Terminal panel - only render when panel is open (not in modal) */}
+                {!isModal && activeWorktreePath && terminalPanelOpen && (
+                  <>
+                    <ResizableHandle withHandle />
+                    <ResizablePanel
+                      ref={terminalPanelRef}
+                      defaultSize={terminalVisible ? 30 : 4}
+                      minSize={terminalVisible ? 15 : 4}
+                      collapsible
+                      collapsedSize={4}
+                      onCollapse={handleTerminalCollapse}
+                      onExpand={handleTerminalExpand}
+                    >
+                      <TerminalPanel
+                        isCollapsed={!terminalVisible}
                         onExpand={handleTerminalExpand}
-                      >
-                        <TerminalPanel
-                          isCollapsed={!terminalVisible}
-                          onExpand={handleTerminalExpand}
-                        />
-                      </ResizablePanel>
-                    </>
-                  )}
+                      />
+                    </ResizablePanel>
+                  </>
+                )}
               </ResizablePanelGroup>
             </ResizablePanel>
 

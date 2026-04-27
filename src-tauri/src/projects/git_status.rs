@@ -13,6 +13,10 @@ pub struct ActiveWorktreeInfo {
     pub pr_number: Option<u32>,
     /// GitHub PR URL (if a PR has been created)
     pub pr_url: Option<String>,
+    /// Remote most recently pushed to for the PR (e.g., "origin" or "<fork_owner>")
+    pub pr_push_remote: Option<String>,
+    /// Branch name on `pr_push_remote` most recently pushed to
+    pub pr_push_branch: Option<String>,
 }
 
 /// Git branch status relative to a base branch
@@ -768,30 +772,45 @@ pub fn get_branch_status(info: &ActiveWorktreeInfo) -> Result<GitBranchStatus, S
     let worktree_ahead_count = count_commits_between(repo_path, base_branch, "HEAD");
 
     // Commits not yet pushed to the upstream tracking ref
-    // Uses @{upstream} to support non-origin remotes (e.g., fork/branch)
-    // Falls back to origin/{current_branch} if no upstream is configured
+    // Prefers the remembered PR push target (supports fork PRs where @{upstream} points
+    // at origin but commits live on a fork remote). Falls back to @{upstream}, then
+    // origin/{current_branch}.
     let unpushed_count = if current_branch != *base_branch {
-        let upstream_ref = get_upstream_ref(repo_path);
-
-        if let Some(ref upstream) = upstream_ref {
-            // Fetch the remote for the upstream ref (e.g., "fork" from "fork/branch")
-            if let Some(remote) = upstream.split('/').next() {
-                if remote != "origin" {
-                    let _ = fetch_origin_branch_from_remote(repo_path, remote, &current_branch);
-                } else {
-                    let _ = fetch_origin_branch(repo_path, &current_branch);
-                }
-            }
-            count_commits_between(repo_path, upstream, "HEAD")
-        } else {
-            // No upstream configured — try origin/{current_branch}
-            let _ = fetch_origin_branch(repo_path, &current_branch);
-            let origin_current_ref = format!("origin/{current_branch}");
-            if ref_exists(repo_path, &origin_current_ref) {
-                count_commits_between(repo_path, &origin_current_ref, "HEAD")
+        if let (Some(remote), Some(branch)) = (&info.pr_push_remote, &info.pr_push_branch) {
+            if remote == "origin" {
+                let _ = fetch_origin_branch(repo_path, branch);
             } else {
-                // Never pushed — all worktree-unique commits are unpushed
+                let _ = fetch_origin_branch_from_remote(repo_path, remote, branch);
+            }
+            let push_ref = format!("{remote}/{branch}");
+            if ref_exists(repo_path, &push_ref) {
+                count_commits_between(repo_path, &push_ref, "HEAD")
+            } else {
                 worktree_ahead_count
+            }
+        } else {
+            let upstream_ref = get_upstream_ref(repo_path);
+
+            if let Some(ref upstream) = upstream_ref {
+                // Fetch the remote for the upstream ref (e.g., "fork" from "fork/branch")
+                if let Some(remote) = upstream.split('/').next() {
+                    if remote != "origin" {
+                        let _ = fetch_origin_branch_from_remote(repo_path, remote, &current_branch);
+                    } else {
+                        let _ = fetch_origin_branch(repo_path, &current_branch);
+                    }
+                }
+                count_commits_between(repo_path, upstream, "HEAD")
+            } else {
+                // No upstream configured — try origin/{current_branch}
+                let _ = fetch_origin_branch(repo_path, &current_branch);
+                let origin_current_ref = format!("origin/{current_branch}");
+                if ref_exists(repo_path, &origin_current_ref) {
+                    count_commits_between(repo_path, &origin_current_ref, "HEAD")
+                } else {
+                    // Never pushed — all worktree-unique commits are unpushed
+                    worktree_ahead_count
+                }
             }
         }
     } else {

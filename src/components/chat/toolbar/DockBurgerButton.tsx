@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Archive,
   Command,
@@ -13,10 +13,10 @@ import {
   ShieldAlert,
   Sparkles,
   Terminal,
-  Wand2,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -52,11 +52,14 @@ interface DockBurgerButtonProps {
   activeMcpCount?: number
   /** Attach-images handler — opens native file picker (see ChatWindow). */
   onAttach?: () => void
+  /** Extra classes merged onto the trigger button (e.g. responsive visibility). */
+  className?: string
 }
 
 export function DockBurgerButton({
   activeMcpCount = 0,
   onAttach,
+  className,
 }: DockBurgerButtonProps = {}) {
   const isMobile = useIsMobile()
   const queryClient = useQueryClient()
@@ -82,6 +85,7 @@ export function DockBurgerButton({
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [resumeCommand, setResumeCommand] = useState<string | null>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
 
   const activeBackend = (selectedBackend ??
     preferences?.default_backend ??
@@ -143,9 +147,15 @@ export function DockBurgerButton({
     })
   }, [getActiveResumeCommand])
 
-  // Global shortcut — same event the FloatingDock listens to.
+  // Global shortcut — only respond when this instance is the visible variant.
+  // Both desktop + mobile burgers mount; CSS (`hidden`/`@xl:hidden`) hides one.
+  // `offsetParent === null` is true for `display: none`, so the hidden variant skips.
   useEffect(() => {
-    const handler = () => toggleMenu()
+    const handler = () => {
+      if (!triggerRef.current || triggerRef.current.offsetParent === null)
+        return
+      toggleMenu()
+    }
     window.addEventListener('toggle-quick-menu', handler)
     return () => window.removeEventListener('toggle-quick-menu', handler)
   }, [toggleMenu])
@@ -228,9 +238,13 @@ export function DockBurgerButton({
     <DropdownMenu open={menuOpen} onOpenChange={handleOpenChange}>
       <DropdownMenuTrigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           title={`Menu (${menuShortcut})`}
-          className="flex h-8 items-center gap-1 px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground"
+          className={cn(
+            'flex h-8 items-center gap-1 px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground',
+            className
+          )}
         >
           <Menu className="h-3.5 w-3.5" />
         </button>
@@ -241,12 +255,6 @@ export function DockBurgerButton({
         className="min-w-[240px]"
         onEscapeKeyDown={e => e.stopPropagation()}
       >
-        <DropdownMenuItem
-          onClick={() => useUIStore.getState().setMagicModalOpen(true)}
-        >
-          <Wand2 className="mr-2 h-4 w-4" />
-          Magic
-        </DropdownMenuItem>
         {onAttach && (
           <DropdownMenuItem onClick={onAttach}>
             <Paperclip className="mr-2 h-4 w-4" />

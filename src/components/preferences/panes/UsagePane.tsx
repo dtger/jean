@@ -1,29 +1,17 @@
 import React from 'react'
 import { Loader2, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Separator } from '@/components/ui/separator'
 import {
   useCodexCliAuth,
   useCodexCliStatus,
   useCodexUsage,
 } from '@/services/codex-cli'
+import { SettingsSection } from '../SettingsSection'
+
 interface UsageWindow {
   usedPercent: number
   resetsAt: number | null
 }
-
-const SettingsSection: React.FC<{
-  title: string
-  children: React.ReactNode
-}> = ({ title, children }) => (
-  <div className="space-y-4">
-    <div>
-      <h3 className="text-lg font-medium text-foreground">{title}</h3>
-      <Separator className="mt-2" />
-    </div>
-    {children}
-  </div>
-)
 
 const UsageRow: React.FC<{
   label: string
@@ -105,7 +93,14 @@ export const UsagePane: React.FC = () => {
         </div>
       </div>
 
-      <SettingsSection title="Codex">
+      <SettingsSection title="Claude" anchorId="pref-usage-section-claude">
+        <p className="text-sm text-muted-foreground">
+          Claude usage tracking is temporarily disabled due to an authentication
+          bug that causes repeated logouts.
+        </p>
+      </SettingsSection>
+
+      <SettingsSection title="Codex" anchorId="pref-usage-section-codex">
         {!codexStatus.data?.installed ? (
           <p className="text-sm text-muted-foreground">
             Codex CLI is not installed.

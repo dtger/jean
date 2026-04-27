@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { GitBranch, Loader2, Plus, Settings } from 'lucide-react'
 import {
   Tooltip,
@@ -11,11 +12,26 @@ import { normalizeRunScripts, type JeanConfig } from '@/services/projects'
 
 export interface QuickActionsTabProps {
   hasBaseSession: boolean
-  onCreateWorktree: () => void
+  onCreateWorktree: (customName?: string) => void
   onBaseSession: () => void
   isCreating: boolean
   projectId: string | null
   jeanConfig: JeanConfig | null | undefined
+}
+
+const INVALID_BRANCH_CHAR = /[\s:?*~^[\\]/
+
+function isInvalidBranchName(trimmed: string): boolean {
+  if (trimmed.length === 0) return false
+  return (
+    INVALID_BRANCH_CHAR.test(trimmed) ||
+    trimmed.startsWith('/') ||
+    trimmed.endsWith('/') ||
+    trimmed.startsWith('.') ||
+    trimmed.endsWith('.') ||
+    trimmed.includes('..') ||
+    trimmed.endsWith('.lock')
+  )
 }
 
 export function QuickActionsTab({
@@ -26,8 +42,12 @@ export function QuickActionsTab({
   projectId,
   jeanConfig,
 }: QuickActionsTabProps) {
+  const [customBranchName, setCustomBranchName] = useState('')
   const setupScript = jeanConfig?.scripts.setup
   const runScripts = normalizeRunScripts(jeanConfig?.scripts.run)
+
+  const trimmedBranchName = customBranchName.trim()
+  const isInvalid = isInvalidBranchName(trimmedBranchName)
 
   const handleRunClick = () => {
     if (!projectId) return
@@ -35,6 +55,12 @@ export function QuickActionsTab({
       useUIStore.getState().setNewWorktreeModalOpen(false)
       useProjectsStore.getState().openProjectSettings(projectId, 'jean-json')
     }
+  }
+
+  const handleCreateClick = () => {
+    if (isInvalid) return
+    onCreateWorktree(trimmedBranchName || undefined)
+    setCustomBranchName('')
   }
 
   return (
@@ -50,7 +76,7 @@ export function QuickActionsTab({
             'border border-border'
           )}
         >
-          <GitBranch className="h-10 w-10 text-muted-foreground" />
+          <GitBranch className="h-10 w-10 shrink-0 text-muted-foreground" />
           <div className="flex flex-col items-center gap-1.5">
             <span className="font-medium text-base">
               {hasBaseSession ? 'Switch to Base Session' : 'New Base Session'}
@@ -65,19 +91,16 @@ export function QuickActionsTab({
         </button>
 
         {/* New Worktree button */}
-        <button
-          onClick={onCreateWorktree}
-          disabled={isCreating}
+        <div
           className={cn(
-            'relative flex flex-col items-center justify-center gap-4 sm:aspect-square p-4 sm:p-8 rounded-xl text-sm transition-colors',
-            'hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring',
-            'border border-border'
+            'relative flex flex-col items-center justify-center gap-3 sm:gap-4 sm:aspect-square p-4 sm:p-8 rounded-xl text-sm transition-colors',
+            'border border-border bg-card'
           )}
         >
           {isCreating ? (
-            <Loader2 className="h-10 w-10 text-muted-foreground animate-spin" />
+            <Loader2 className="h-10 w-10 shrink-0 text-muted-foreground animate-spin" />
           ) : (
-            <Plus className="h-10 w-10 text-muted-foreground" />
+            <Plus className="h-10 w-10 shrink-0 text-muted-foreground" />
           )}
           <div className="flex flex-col items-center gap-1.5">
             <span className="font-medium text-base">New Worktree</span>
@@ -90,10 +113,43 @@ export function QuickActionsTab({
               </span>
             )}
           </div>
+          <input
+            type="text"
+            value={customBranchName}
+            onChange={e => setCustomBranchName(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !isCreating && !isInvalid)
+                handleCreateClick()
+            }}
+            placeholder="Branch name (optional)"
+            disabled={isCreating}
+            aria-invalid={isInvalid}
+            className={cn(
+              'mt-1 w-full max-w-[180px] px-2 py-1 text-xs text-center rounded border bg-background focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50',
+              isInvalid ? 'border-destructive' : 'border-border'
+            )}
+          />
+          {isInvalid && (
+            <span className="text-xs text-destructive">
+              Invalid branch name
+            </span>
+          )}
+          <button
+            onClick={handleCreateClick}
+            disabled={isCreating || isInvalid}
+            className={cn(
+              'px-3 py-1 rounded text-xs transition-colors',
+              'bg-primary text-primary-foreground hover:bg-primary/90',
+              'focus:outline-none focus:ring-2 focus:ring-ring',
+              'disabled:opacity-50'
+            )}
+          >
+            Create
+          </button>
           <kbd className="hidden sm:block absolute top-3 right-3 text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
             N
           </kbd>
-        </button>
+        </div>
       </div>
 
       {/* Configure jean.json - only show when not configured */}

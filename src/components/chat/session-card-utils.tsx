@@ -179,8 +179,20 @@ export function computeSessionCardData(
       contentBlocks: currentStreamingContentBlocks,
     }).content
 
+  // Mirrors `canBeWaiting` filter in prefetchSessions (src/services/chat.ts).
+  // A session's waiting flag is only meaningful while the run is active, resumable,
+  // or parked after a plan approval. Otherwise (e.g. completed non-plan run) the
+  // flag is stale and must not be trusted — either in persisted state or Zustand.
+  const runCanBeWaiting =
+    !session.last_run_status ||
+    session.last_run_status === 'running' ||
+    session.last_run_status === 'resumable' ||
+    (session.last_run_status === 'completed' &&
+      session.waiting_for_input_type === 'plan')
+
   // Use persisted waiting_for_input flag from session metadata
-  const persistedWaitingForInput = session.waiting_for_input ?? false
+  const persistedWaitingForInput =
+    runCanBeWaiting && (session.waiting_for_input ?? false)
 
   // Check if there are approved plan message IDs
   const approvedPlanIds = new Set(session.approved_plan_message_ids ?? [])
@@ -244,9 +256,10 @@ export function computeSessionCardData(
   // flows through `persistedWaitingForInput` below, so genuine waiting wins.
   const isInReviewState =
     reviewingSessions[session.id] || !!session.review_results
-  const isExplicitlyWaiting = isInReviewState
-    ? false
-    : (waitingForInputSessionIds[session.id] ?? false)
+  const isExplicitlyWaiting =
+    isInReviewState || !runCanBeWaiting
+      ? false
+      : (waitingForInputSessionIds[session.id] ?? false)
   const hasActionableStreamingPlan = hasStreamingExitPlan && !sessionSending
   const isWaitingFromMessages =
     hasStreamingQuestion ||
@@ -293,7 +306,9 @@ export function computeSessionCardData(
       executionModes[session.id] ??
       session.selected_execution_mode ??
       getDefaultExecutionModeForBackend(session.backend))
-    : (executionModes[session.id] ?? session.selected_execution_mode ?? getDefaultExecutionModeForBackend(session.backend))
+    : (executionModes[session.id] ??
+      session.selected_execution_mode ??
+      getDefaultExecutionModeForBackend(session.backend))
 
   // Determine status
   // Priority: permission > waiting > sending (active) > review > restart recovery > completed > idle

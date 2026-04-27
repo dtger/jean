@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 interface ModalCloseButtonProps {
-  onClick: (e: React.MouseEvent) => void
+  onClick: React.MouseEventHandler<HTMLButtonElement>
   /** sm = panels/drawers, md = modals (default), lg = preferences mobile */
   size?: 'sm' | 'md' | 'lg'
   className?: string
@@ -28,6 +28,8 @@ export function ModalCloseButton({
 
   return (
     <Button
+      type="button"
+      aria-label="Close"
       variant="ghost"
       size="icon"
       className={cn(s.button, 'shrink-0 p-0', className)}

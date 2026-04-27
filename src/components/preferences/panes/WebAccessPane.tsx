@@ -8,7 +8,6 @@ import {
   ShieldAlert,
 } from 'lucide-react'
 import { Label } from '@/components/ui/label'
-import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -31,6 +30,7 @@ import { toast } from 'sonner'
 import { isNativeApp } from '@/lib/environment'
 import { openExternal } from '@/lib/platform'
 import { copyToClipboard } from '@/lib/clipboard'
+import { SettingsSection } from '../SettingsSection'
 
 const LOOPBACK_BIND_HOSTS = new Set(['localhost', '127.0.0.1', '::1'])
 const WILDCARD_BIND_HOSTS = new Set(['0.0.0.0', '::'])
@@ -71,19 +71,6 @@ function hasUsableBoundUrl(url: string | null | undefined): boolean {
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
-
-const SettingsSection: React.FC<{
-  title: string
-  children: React.ReactNode
-}> = ({ title, children }) => (
-  <div className="space-y-4">
-    <div>
-      <h3 className="text-lg font-medium text-foreground">{title}</h3>
-      <Separator className="mt-2" />
-    </div>
-    {children}
-  </div>
-)
 
 const InlineField: React.FC<{
   label: string
@@ -378,7 +365,7 @@ export const WebAccessPane: React.FC = () => {
         authentication.
       </p>
 
-      <SettingsSection title="Server">
+      <SettingsSection title="Server" anchorId="pref-web-access-section-server">
         <div className="space-y-4">
           <InlineField
             label="Enable HTTP server"
@@ -469,7 +456,10 @@ export const WebAccessPane: React.FC = () => {
         </div>
       </SettingsSection>
 
-      <SettingsSection title="Authentication">
+      <SettingsSection
+        title="Authentication"
+        anchorId="pref-web-access-section-authentication"
+      >
         <div className="space-y-4">
           <InlineField
             label="Require access token"

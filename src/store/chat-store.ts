@@ -3,6 +3,7 @@ import { devtools } from 'zustand/middleware'
 import {
   isAskUserQuestion,
   type ToolCall,
+  type ToolLiveEvent,
   type QuestionAnswer,
   type SetupScriptResult,
   type ThinkingLevel,
@@ -23,9 +24,16 @@ import {
   type ExecutionMode,
   type SessionDigest,
   type LabelData,
+  type ScheduledWakeup,
   EXECUTION_MODE_CYCLE,
   isPlanToolCall,
 } from '@/types/chat'
+
+export type ScheduledWakeupStatus = 'pending' | 'fired' | 'cancelled'
+
+export interface ScheduledWakeupState extends ScheduledWakeup {
+  status: ScheduledWakeupStatus
+}
 import type { ReviewResponse } from '@/types/projects'
 import { invoke } from '@/lib/transport'
 import type { ClaudeModel, CodexModel } from '@/types/preferences'
@@ -144,6 +152,10 @@ interface ChatUIState {
 
   // Enabled MCP servers per session (server names that are active)
   enabledMcpServers: Record<string, string[]>
+
+  // Pending/fired/cancelled ScheduleWakeup entries keyed by tool_call_id
+  // so ToolCallInline can render a live countdown + status indicator.
+  scheduledWakeups: Record<string, ScheduledWakeupState>
 
   // Answered questions per session (to make them read-only after answering)
   answeredQuestions: Record<string, Set<string>>
@@ -295,6 +307,14 @@ interface ChatUIState {
     rowIndex: number
   ) => void
 
+  // Actions - ScheduleWakeup indicator state (keyed by tool_call_id)
+  setScheduledWakeup: (toolCallId: string, wakeup: ScheduledWakeupState) => void
+  markScheduledWakeupStatus: (
+    toolCallId: string,
+    status: ScheduledWakeupStatus
+  ) => void
+  removeScheduledWakeup: (toolCallId: string) => void
+
   // Actions - Reviewing status management (persisted)
   setSessionReviewing: (sessionId: string, reviewing: boolean) => void
   isSessionReviewing: (sessionId: string) => boolean
@@ -351,6 +371,18 @@ interface ChatUIState {
     sessionId: string,
     toolUseId: string,
     output: string
+  ) => void
+  /** Append a live event (Monitor notification, status change) to a tool call. */
+  appendToolEvent: (
+    sessionId: string,
+    toolUseId: string,
+    event: ToolLiveEvent
+  ) => void
+  /** Set a tool call's lifecycle status (armed/running/done/timeout/error). */
+  setToolCallStatus: (
+    sessionId: string,
+    toolUseId: string,
+    status: NonNullable<ToolCall['status']>
   ) => void
   clearToolCalls: (sessionId: string) => void
 
@@ -655,6 +687,7 @@ export const useChatStore = create<ChatUIState>()(
       selectedModels: {},
       selectedProviders: {},
       enabledMcpServers: {},
+      scheduledWakeups: {},
       answeredQuestions: {},
       submittedAnswers: {},
       errors: {},
@@ -881,6 +914,44 @@ export const useChatStore = create<ChatUIState>()(
           },
           undefined,
           'toggleTableRowChecked'
+        ),
+
+      // ScheduleWakeup indicator state
+      setScheduledWakeup: (toolCallId, wakeup) =>
+        set(
+          state => ({
+            scheduledWakeups: {
+              ...state.scheduledWakeups,
+              [toolCallId]: wakeup,
+            },
+          }),
+          undefined,
+          'setScheduledWakeup'
+        ),
+      markScheduledWakeupStatus: (toolCallId, status) =>
+        set(
+          state => {
+            const existing = state.scheduledWakeups[toolCallId]
+            if (!existing || existing.status === status) return state
+            return {
+              scheduledWakeups: {
+                ...state.scheduledWakeups,
+                [toolCallId]: { ...existing, status },
+              },
+            }
+          },
+          undefined,
+          'markScheduledWakeupStatus'
+        ),
+      removeScheduledWakeup: toolCallId =>
+        set(
+          state => {
+            if (!(toolCallId in state.scheduledWakeups)) return state
+            const { [toolCallId]: _, ...rest } = state.scheduledWakeups
+            return { scheduledWakeups: rest }
+          },
+          undefined,
+          'removeScheduledWakeup'
         ),
 
       // Reviewing status management (persisted)
@@ -1287,6 +1358,58 @@ export const useChatStore = create<ChatUIState>()(
           },
           undefined,
           'updateToolCallOutput'
+        ),
+
+      appendToolEvent: (sessionId, toolUseId, event) =>
+        set(
+          state => {
+            const toolCalls = state.activeToolCalls[sessionId] ?? []
+            const existing = toolCalls.find(tc => tc.id === toolUseId)
+            if (!existing) return state
+            const prevEvents = existing.events ?? []
+            // Derive status transitions from status events.
+            let nextStatus = existing.status
+            if (event.kind === 'monitor_status') {
+              const p = event.payload as { status?: ToolCall['status'] } | null
+              if (p?.status) nextStatus = p.status
+            } else if (event.kind === 'monitor_done') {
+              nextStatus = 'done'
+            } else if (event.kind === 'monitor_event') {
+              if (!nextStatus || nextStatus === 'armed') nextStatus = 'running'
+            }
+            const nextEvents = [...prevEvents, event]
+            return {
+              activeToolCalls: {
+                ...state.activeToolCalls,
+                [sessionId]: toolCalls.map(tc =>
+                  tc.id === toolUseId
+                    ? { ...tc, events: nextEvents, status: nextStatus }
+                    : tc
+                ),
+              },
+            }
+          },
+          undefined,
+          'appendToolEvent'
+        ),
+
+      setToolCallStatus: (sessionId, toolUseId, status) =>
+        set(
+          state => {
+            const toolCalls = state.activeToolCalls[sessionId] ?? []
+            const existing = toolCalls.find(tc => tc.id === toolUseId)
+            if (!existing || existing.status === status) return state
+            return {
+              activeToolCalls: {
+                ...state.activeToolCalls,
+                [sessionId]: toolCalls.map(tc =>
+                  tc.id === toolUseId ? { ...tc, status } : tc
+                ),
+              },
+            }
+          },
+          undefined,
+          'setToolCallStatus'
         ),
 
       clearToolCalls: sessionId =>

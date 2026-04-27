@@ -467,6 +467,12 @@ const PROMPT_SECTIONS: PromptSection[] = [
 
 // Flat list for lookups
 const PROMPT_CONFIGS = PROMPT_SECTIONS.flatMap(s => s.configs)
+const PROMPT_CONFIG_KEYS = new Set(PROMPT_CONFIGS.map(config => config.key))
+const MAGIC_PROMPT_HIGHLIGHT_DURATION_MS = 1800
+
+export function getMagicPromptItemId(key: keyof MagicPrompts): string {
+  return `settings-magic-prompt-${key}`
+}
 
 const CLAUDE_MODEL_OPTIONS: { value: MagicPromptModel; label: string }[] = [
   { value: 'claude-opus-4-7', label: 'Opus 4.7' },
@@ -478,14 +484,24 @@ const CLAUDE_MODEL_OPTIONS: { value: MagicPromptModel; label: string }[] = [
 const CODEX_MODEL_OPTIONS: { value: MagicPromptModel; label: string }[] =
   codexModelOptions.map(o => ({ value: o.value, label: o.label }))
 
-export const MagicPromptsPane: React.FC = () => {
+interface MagicPromptsPaneProps {
+  searchTargetPromptKey?: keyof MagicPrompts | null
+}
+
+export const MagicPromptsPane: React.FC<MagicPromptsPaneProps> = ({
+  searchTargetPromptKey = null,
+}) => {
   const { data: preferences } = usePreferences()
   const patchPreferences = usePatchPreferences()
   const [selectedKey, setSelectedKey] =
     useState<keyof MagicPrompts>('investigate_issue')
+  const [highlightedKey, setHighlightedKey] = useState<
+    keyof MagicPrompts | null
+  >(null)
   const [localValue, setLocalValue] = useState('')
   const [modelPopoverOpen, setModelPopoverOpen] = useState(false)
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const highlightTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   const { data: availableOpencodeModels } = useAvailableOpencodeModels()
   const { data: availableCursorModels } = useAvailableCursorModels()
@@ -609,8 +625,38 @@ export const MagicPromptsPane: React.FC = () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current)
       }
+      if (highlightTimeoutRef.current) {
+        clearTimeout(highlightTimeoutRef.current)
+      }
     }
   }, [])
+
+  useEffect(() => {
+    if (
+      !searchTargetPromptKey ||
+      !PROMPT_CONFIG_KEYS.has(searchTargetPromptKey)
+    ) {
+      return
+    }
+
+    setSelectedKey(searchTargetPromptKey)
+    setHighlightedKey(searchTargetPromptKey)
+
+    const targetElement = document.getElementById(
+      getMagicPromptItemId(searchTargetPromptKey)
+    )
+    targetElement?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+
+    if (highlightTimeoutRef.current) {
+      clearTimeout(highlightTimeoutRef.current)
+    }
+    highlightTimeoutRef.current = setTimeout(() => {
+      setHighlightedKey(current =>
+        current === searchTargetPromptKey ? null : current
+      )
+      highlightTimeoutRef.current = null
+    }, MAGIC_PROMPT_HIGHLIGHT_DURATION_MS)
+  }, [searchTargetPromptKey])
 
   const handleChange = useCallback(
     (newValue: string) => {
@@ -857,11 +903,16 @@ export const MagicPromptsPane: React.FC = () => {
                   <button
                     key={config.key}
                     onClick={() => setSelectedKey(config.key)}
+                    id={getMagicPromptItemId(config.key)}
+                    data-settings-target={config.key}
                     className={cn(
-                      'w-full px-2 py-1.5 rounded-md text-left text-sm transition-colors truncate',
+                      'w-full px-2 py-1.5 rounded-md text-left text-sm transition-colors truncate ring-1 ring-transparent',
                       selectedKey === config.key
                         ? 'bg-accent text-accent-foreground'
-                        : 'hover:bg-muted/50 text-foreground'
+                        : 'hover:bg-muted/50 text-foreground',
+                      highlightedKey === config.key
+                        ? 'ring-border bg-accent/40'
+                        : ''
                     )}
                   >
                     {config.label}

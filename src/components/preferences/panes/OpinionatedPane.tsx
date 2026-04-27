@@ -2,7 +2,6 @@ import React, { useCallback, useState } from 'react'
 import { invoke } from '@/lib/transport'
 import { openExternal } from '@/lib/platform'
 import { Label } from '@/components/ui/label'
-import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -11,8 +10,10 @@ import {
   CheckCircle,
   Loader2,
   RefreshCw,
+  ChevronRight,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { SettingsSection } from '../SettingsSection'
 
 interface UsageStep {
   label?: string
@@ -83,6 +84,36 @@ const PLUGINS: PluginDefinition[] = [
       },
     ],
   },
+  {
+    id: 'superpowers',
+    name: 'Superpowers',
+    description:
+      'Skills framework for Claude Code. Adds brainstorming, TDD, systematic debugging, code review, plan writing/execution, parallel agent dispatch, and git worktree workflows.',
+    githubUrl: 'https://github.com/obra/superpowers',
+    scope: 'claude-cli',
+    backends: ['Claude'],
+    usage: [
+      {
+        note: 'Auto-loads skills on session start. Claude invokes the Skill tool when a workflow matches.',
+      },
+      {
+        label: 'Brainstorm a feature',
+        command: '/superpowers:brainstorm',
+      },
+      {
+        label: 'Write an implementation plan',
+        command: '/superpowers:writing-plans',
+      },
+      {
+        label: 'Execute a plan',
+        command: '/superpowers:executing-plans',
+      },
+      {
+        label: 'Request code review',
+        command: '/superpowers:requesting-code-review',
+      },
+    ],
+  },
 ]
 
 interface PluginStatus {
@@ -90,27 +121,11 @@ interface PluginStatus {
   version: string | null
 }
 
-const SettingsSection: React.FC<{
-  title: string
-  description?: string
-  children: React.ReactNode
-}> = ({ title, description, children }) => (
-  <div className="space-y-4">
-    <div>
-      <h3 className="text-lg font-medium text-foreground">{title}</h3>
-      {description && (
-        <p className="text-sm text-muted-foreground mt-1">{description}</p>
-      )}
-      <Separator className="mt-2" />
-    </div>
-    {children}
-  </div>
-)
-
 function PluginCard({ plugin }: { plugin: PluginDefinition }) {
   const [status, setStatus] = useState<PluginStatus | null>(null)
   const [checking, setChecking] = useState(true)
   const [installing, setInstalling] = useState(false)
+  const [expanded, setExpanded] = useState(false)
 
   const checkStatus = useCallback(async () => {
     setChecking(true)
@@ -151,55 +166,56 @@ function PluginCard({ plugin }: { plugin: PluginDefinition }) {
   }, [plugin.id, plugin.name, checkStatus])
 
   return (
-    <div className="rounded-lg border p-4 space-y-3">
-      <div className="flex items-start gap-4">
-        <div className="flex-1 space-y-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Label className="text-sm font-medium text-foreground">
-              {plugin.name}
-            </Label>
-            {!checking && status?.installed && (
-              <Badge variant="secondary" className="gap-1 text-xs">
-                <CheckCircle className="h-3 w-3 text-green-500" />
-                Installed
-                {status.version && ` (v${status.version})`}
-              </Badge>
-            )}
-            <Badge variant="outline" className="text-xs">
-              {plugin.scope === 'system-wide'
-                ? 'System-wide (shell)'
-                : 'Claude CLI plugin'}
-            </Badge>
-          </div>
-          <div className="text-[11px] text-muted-foreground">
-            Applies to:{' '}
-            <span className="text-foreground/70">
-              {plugin.backends.join(', ')}
-            </span>
-          </div>
-          <p className="text-xs text-muted-foreground">{plugin.description}</p>
-          <button
-            onClick={() => openExternal(plugin.githubUrl)}
-            className="inline-flex items-center gap-1 text-xs text-primary hover:underline underline-offset-2 cursor-pointer"
-          >
-            <ExternalLink className="h-3 w-3" />
-            GitHub
-          </button>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
+    <div className="rounded-lg border">
+      <button
+        type="button"
+        onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-muted/40 rounded-lg cursor-pointer"
+      >
+        <ChevronRight
+          className={`h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform ${
+            expanded ? 'rotate-90' : ''
+          }`}
+        />
+        <Label className="text-sm font-medium text-foreground cursor-pointer">
+          {plugin.name}
+        </Label>
+        {!checking && status?.installed && (
+          <Badge variant="secondary" className="gap-1 text-xs">
+            <CheckCircle className="h-3 w-3 text-green-500" />
+            Installed
+            {status.version && ` (v${status.version})`}
+          </Badge>
+        )}
+        <Badge variant="outline" className="text-xs">
+          {plugin.scope === 'system-wide'
+            ? 'System-wide (shell)'
+            : 'Claude CLI plugin'}
+        </Badge>
+        <span className="ml-auto flex items-center gap-2 shrink-0">
           {checking ? (
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
           ) : status?.installed ? (
             <Button
               variant="ghost"
               size="sm"
-              onClick={checkStatus}
+              onClick={e => {
+                e.stopPropagation()
+                checkStatus()
+              }}
               disabled={installing}
             >
               <RefreshCw className="h-4 w-4" />
             </Button>
           ) : (
-            <Button size="sm" onClick={handleInstall} disabled={installing}>
+            <Button
+              size="sm"
+              onClick={e => {
+                e.stopPropagation()
+                handleInstall()
+              }}
+              disabled={installing}
+            >
               {installing ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -208,29 +224,55 @@ function PluginCard({ plugin }: { plugin: PluginDefinition }) {
               Install
             </Button>
           )}
-        </div>
-      </div>
+        </span>
+      </button>
 
-      {plugin.usage.length > 0 && (
-        <div className="border-t pt-3 space-y-2">
-          <div className="text-xs font-medium text-foreground/80">
-            How to use
+      {expanded && (
+        <div className="px-3 pb-3 space-y-3 border-t">
+          <div className="pt-3 space-y-1">
+            <div className="text-[11px] text-muted-foreground">
+              Applies to:{' '}
+              <span className="text-foreground/70">
+                {plugin.backends.join(', ')}
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {plugin.description}
+            </p>
+            <button
+              onClick={() => openExternal(plugin.githubUrl)}
+              className="inline-flex items-center gap-1 text-xs text-primary hover:underline underline-offset-2 cursor-pointer"
+            >
+              <ExternalLink className="h-3 w-3" />
+              GitHub
+            </button>
           </div>
-          <ul className="space-y-1.5">
-            {plugin.usage.map((step, idx) => (
-              <li key={idx} className="text-xs text-muted-foreground space-y-1">
-                {step.note && <div>{step.note}</div>}
-                {step.label && (
-                  <div className="text-foreground/70">{step.label}:</div>
-                )}
-                {step.command && (
-                  <code className="block rounded bg-muted px-2 py-1 font-mono text-[11px] text-foreground">
-                    {step.command}
-                  </code>
-                )}
-              </li>
-            ))}
-          </ul>
+
+          {plugin.usage.length > 0 && (
+            <div className="border-t pt-3 space-y-2">
+              <div className="text-xs font-medium text-foreground/80">
+                How to use
+              </div>
+              <ul className="space-y-1.5">
+                {plugin.usage.map((step, idx) => (
+                  <li
+                    key={idx}
+                    className="text-xs text-muted-foreground space-y-1"
+                  >
+                    {step.note && <div>{step.note}</div>}
+                    {step.label && (
+                      <div className="text-foreground/70">{step.label}:</div>
+                    )}
+                    {step.command && (
+                      <code className="block rounded bg-muted px-2 py-1 font-mono text-[11px] text-foreground">
+                        {step.command}
+                      </code>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -243,6 +285,7 @@ export const OpinionatedPane: React.FC = () => {
       <SettingsSection
         title="Recommended Plugins"
         description="Curated tools that enhance your development workflow with Claude."
+        anchorId="pref-opinionated-section-recommended-plugins"
       >
         <div className="space-y-3">
           {PLUGINS.map(plugin => (

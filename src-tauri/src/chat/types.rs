@@ -655,6 +655,30 @@ pub struct Session {
     /// 0 means oldest run is loaded; > 0 means older runs exist on disk.
     #[serde(default)]
     pub loaded_run_start_index: usize,
+
+    /// Pending ScheduleWakeup request (one per session, last-wins).
+    /// Fires the stored prompt into this session after fire_at_unix.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheduled_wakeup: Option<ScheduledWakeup>,
+}
+
+/// A ScheduleWakeup request originated from the Claude CLI tool.
+/// Persisted on Session so it survives app restarts.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ScheduledWakeup {
+    /// Unix timestamp (seconds) when the wakeup should fire
+    pub fire_at_unix: u64,
+    /// Unix timestamp (seconds) when the wakeup was scheduled
+    pub scheduled_at_unix: u64,
+    /// Original delaySeconds (clamped to [60, 3600])
+    pub delay_seconds: u64,
+    /// Prompt text to send when the wakeup fires
+    pub prompt: String,
+    /// Reason string supplied by the model (telemetry / UI display)
+    #[serde(default)]
+    pub reason: String,
+    /// ID of the tool_use call that scheduled this wakeup
+    pub tool_call_id: String,
 }
 
 /// Result of loading a window of session messages from disk.
@@ -728,6 +752,7 @@ impl Session {
             queued_messages: vec![],
             total_runs: 0,
             loaded_run_start_index: 0,
+            scheduled_wakeup: None,
         }
     }
 
@@ -928,6 +953,7 @@ impl SessionMetadata {
             queued_messages: self.queued_messages.clone(),
             total_runs: self.runs.len(),
             loaded_run_start_index: self.runs.len(),
+            scheduled_wakeup: self.scheduled_wakeup.clone(),
         }
     }
 
@@ -971,6 +997,7 @@ impl SessionMetadata {
         self.enabled_mcp_servers = session.enabled_mcp_servers.clone();
         self.table_checked_rows = session.table_checked_rows.clone();
         self.label = session.label.clone();
+        self.scheduled_wakeup = session.scheduled_wakeup.clone();
         // NOTE: Do NOT overwrite queued_messages here. Queue state is managed
         // exclusively by enqueue/dequeue/remove/clear operations which use
         // atomic read-modify-write via with_existing_metadata_mut. Overwriting
@@ -1338,6 +1365,10 @@ pub struct SessionMetadata {
     #[serde(default)]
     pub runs: Vec<RunEntry>,
 
+    /// Pending ScheduleWakeup request (one per session, last-wins)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheduled_wakeup: Option<ScheduledWakeup>,
+
     /// Storage format version for migrations
     #[serde(default = "default_manifest_version")]
     pub version: u32,
@@ -1440,6 +1471,7 @@ impl SessionMetadata {
             queued_messages: vec![],
             last_opened_at: None,
             runs: vec![],
+            scheduled_wakeup: None,
             version: 1,
         }
     }

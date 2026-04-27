@@ -32,7 +32,7 @@ If you need to check some codex app-server related things, use "codex app-server
 5. **Match Code Style**: Follow existing formatting and patterns
 6. **Test Coverage**: Write comprehensive tests for business logic
 7. **Quality Gates**: Run `bun run check:all` after significant changes
-8. **No Dev Server**: Ask user to run and report back
+8. **Dev Server**: You may start the dev server (`bun run tauri dev`) when needed
 9. **No Unsolicited Commits**: Only when explicitly requested
 10. **Documentation**: Update relevant `docs/developer/` files for new patterns
 11. **Removing files**: Always use `rm -f`

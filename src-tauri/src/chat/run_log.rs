@@ -531,6 +531,72 @@ pub fn parse_run_to_message(lines: &[String], run: &RunEntry) -> Result<ChatMess
     // Skip it during replay so the prompt doesn't appear twice.
     let mut skipped_prompt_echo = false;
 
+    // Mirror live-stream Monitor gating (see claude.rs): while a Monitor tool
+    // call is armed and its initial post-arm result has fired, subsequent
+    // assistant text is a per-notification wake-up and must NOT be written
+    // into the chat message `content` — otherwise all tick text lands in the
+    // persisted chat blob when the run completes.
+    struct MonitorArm {
+        initial_turn_finished: bool,
+    }
+    let mut armed_monitors: std::collections::HashMap<String, MonitorArm> =
+        std::collections::HashMap::new();
+    // Reconstruct per-tool Monitor event logs so they survive session reload.
+    // Frontend MonitorExpanded consumes `tool_call.output` when in-memory
+    // `events` are empty (after reload). Each entry encodes
+    // `<unix_ms>|<text>` so the UI can render real relative timestamps.
+    let mut monitor_event_log: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    // Track the most recent timestamp seen in the stream (from user-msg
+    // ISO 8601 `timestamp` field). System and assistant messages don't
+    // carry explicit timestamps, so we fall back to this.
+    let mut last_ms: u64 = (run.started_at as u64).saturating_mul(1000);
+    fn parse_iso8601_ms(s: &str) -> Option<u64> {
+        // Very small ISO 8601 parser: "YYYY-MM-DDTHH:MM:SS(.fff)?Z".
+        // Good enough for Claude CLI's output; avoids pulling a date lib.
+        use std::num::ParseIntError;
+        fn part(s: &str, a: usize, b: usize) -> Result<i64, ParseIntError> {
+            s[a..b].parse::<i64>()
+        }
+        if s.len() < 19 {
+            return None;
+        }
+        let year = part(s, 0, 4).ok()?;
+        let month = part(s, 5, 7).ok()?;
+        let day = part(s, 8, 10).ok()?;
+        let hour = part(s, 11, 13).ok()?;
+        let minute = part(s, 14, 16).ok()?;
+        let second = part(s, 17, 19).ok()?;
+        // Optional .fff
+        let mut ms: i64 = 0;
+        let mut idx = 19;
+        if s.as_bytes().get(idx) == Some(&b'.') {
+            idx += 1;
+            let end = s[idx..]
+                .find(|c: char| !c.is_ascii_digit())
+                .map(|n| idx + n)
+                .unwrap_or(s.len());
+            if let Ok(frac) = part(s, idx, end) {
+                let digits = (end - idx) as u32;
+                ms = match digits {
+                    1 => frac * 100,
+                    2 => frac * 10,
+                    3 => frac,
+                    _ => frac / 10i64.pow(digits - 3),
+                };
+            }
+        }
+        // Days-since-epoch via civil_from_days (no leap-second concerns here).
+        let y = if month <= 2 { year - 1 } else { year };
+        let era = y.div_euclid(400);
+        let yoe = (y - era * 400) as i64;
+        let doy = (153 * (month + (if month > 2 { -3 } else { 9 })) + 2) / 5 + day - 1;
+        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        let days = era * 146097 + doe - 719468;
+        let total_secs = days * 86400 + hour * 3600 + minute * 60 + second;
+        Some((total_secs * 1000 + ms) as u64)
+    }
+
     for line in lines {
         if line.trim().is_empty() {
             continue;
@@ -557,10 +623,22 @@ pub fn parse_run_to_message(lines: &[String], run: &RunEntry) -> Result<ChatMess
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
+        // Update last-seen absolute timestamp from message's `timestamp` field.
+        if let Some(ts_str) = msg.get("timestamp").and_then(|v| v.as_str()) {
+            if let Some(ms) = parse_iso8601_ms(ts_str) {
+                last_ms = ms;
+            }
+        }
+
         let msg_type = msg.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
         match msg_type {
             "assistant" => {
+                // Text-routing gate (mirrors live-stream logic): if ANY armed
+                // Monitor has initial_turn_finished=true, this assistant turn
+                // is a per-notification wake-up, so skip its text from chat.
+                let in_monitor_wakeup = armed_monitors.values().any(|a| a.initial_turn_finished);
+
                 if let Some(message) = msg.get("message") {
                     if let Some(blocks) = message.get("content").and_then(|c| c.as_array()) {
                         for block in blocks {
@@ -582,10 +660,56 @@ pub fn parse_run_to_message(lines: &[String], run: &RunEntry) -> Result<ChatMess
                                             skipped_prompt_echo = true;
                                             continue;
                                         }
-                                        content.push_str(text);
-                                        content_blocks.push(ContentBlock::Text {
-                                            text: text.to_string(),
-                                        });
+                                        // Route this block's text to either chat or
+                                        // Monitor event log. We split on lines so we
+                                        // can peel off `[Monitor notification...]`
+                                        // fragments that the CLI bakes into Claude's
+                                        // assistant text when Monitor output drains
+                                        // mid-turn. CLI emits multiple shapes
+                                        // (`[Monitor notification]`,
+                                        // `[Monitor notification: <payload>]`, …);
+                                        // prefix match without closing bracket catches all.
+                                        let monitor_target = if !armed_monitors.is_empty()
+                                            || in_monitor_wakeup
+                                        {
+                                            armed_monitors.iter().next().map(|(id, _)| id.clone())
+                                        } else {
+                                            None
+                                        };
+
+                                        let mut chat_buf = String::new();
+                                        for raw_line in text.split_inclusive('\n') {
+                                            let trimmed = raw_line.trim_end_matches('\n');
+                                            let is_notification = trimmed
+                                                .trim_start()
+                                                .starts_with("[Monitor notification");
+                                            if is_notification || in_monitor_wakeup {
+                                                // Flush any queued chat text first.
+                                                if !chat_buf.is_empty() {
+                                                    content.push_str(&chat_buf);
+                                                    content_blocks.push(ContentBlock::Text {
+                                                        text: chat_buf.clone(),
+                                                    });
+                                                    chat_buf.clear();
+                                                }
+                                                if let Some(ref id) = monitor_target {
+                                                    let line = trimmed.trim();
+                                                    if !line.is_empty() {
+                                                        monitor_event_log
+                                                            .entry(id.clone())
+                                                            .or_default()
+                                                            .push(format!("{last_ms}|{line}"));
+                                                    }
+                                                }
+                                            } else {
+                                                chat_buf.push_str(raw_line);
+                                            }
+                                        }
+                                        if !chat_buf.is_empty() {
+                                            content.push_str(&chat_buf);
+                                            content_blocks
+                                                .push(ContentBlock::Text { text: chat_buf });
+                                        }
                                     }
                                 }
                                 "tool_use" => {
@@ -603,6 +727,16 @@ pub fn parse_run_to_message(lines: &[String], run: &RunEntry) -> Result<ChatMess
                                         .get("input")
                                         .cloned()
                                         .unwrap_or(serde_json::Value::Null);
+
+                                    // Track armed Monitors so we can gate subsequent text.
+                                    if name == "Monitor" {
+                                        armed_monitors.insert(
+                                            id.clone(),
+                                            MonitorArm {
+                                                initial_turn_finished: false,
+                                            },
+                                        );
+                                    }
 
                                     tool_calls.push(ToolCall {
                                         id: id.clone(),
@@ -654,8 +788,20 @@ pub fn parse_run_to_message(lines: &[String], run: &RunEntry) -> Result<ChatMess
                                     errored_tool_ids.insert(tool_id.to_string());
                                 }
 
-                                // Update matching tool call's output
-                                if let Some(tc) = tool_calls.iter_mut().find(|t| t.id == tool_id) {
+                                // For armed Monitors, capture the tool_result text
+                                // into the event log instead of overwriting .output
+                                // (which we'll fill with the event log at the end).
+                                if armed_monitors.contains_key(tool_id) {
+                                    if !output.is_empty() {
+                                        monitor_event_log
+                                            .entry(tool_id.to_string())
+                                            .or_default()
+                                            .push(format!("{last_ms}|{output}"));
+                                    }
+                                } else if let Some(tc) =
+                                    tool_calls.iter_mut().find(|t| t.id == tool_id)
+                                {
+                                    // Non-Monitor tool: normal output update
                                     tc.output = Some(output.to_string());
                                 }
                             }
@@ -664,6 +810,16 @@ pub fn parse_run_to_message(lines: &[String], run: &RunEntry) -> Result<ChatMess
                 }
             }
             "result" => {
+                // Each `result` closes a turn; flip the post-arm flag on every
+                // armed Monitor so subsequent assistant text is gated out.
+                for arm in armed_monitors.values_mut() {
+                    arm.initial_turn_finished = true;
+                }
+                // Advance wall-clock cursor by this turn's duration so
+                // Monitor event timestamps within the next turn are distinct.
+                if let Some(dur) = msg.get("duration_ms").and_then(|v| v.as_u64()) {
+                    last_ms = last_ms.saturating_add(dur);
+                }
                 // Use result if we somehow missed content
                 if content.is_empty() {
                     if let Some(result) = msg.get("result").and_then(|v| v.as_str()) {
@@ -671,7 +827,86 @@ pub fn parse_run_to_message(lines: &[String], run: &RunEntry) -> Result<ChatMess
                     }
                 }
             }
+            "system" => {
+                let subtype = msg.get("subtype").and_then(|v| v.as_str()).unwrap_or("");
+                let tool_id = msg.get("tool_use_id").and_then(|v| v.as_str());
+
+                // Capture Monitor lifecycle events into its event log.
+                if matches!(
+                    subtype,
+                    "task_started" | "task_updated" | "task_notification"
+                ) {
+                    if let Some(id) = tool_id.filter(|id| armed_monitors.contains_key(*id)) {
+                        let line = match subtype {
+                            "task_started" => {
+                                let desc = msg
+                                    .get("description")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                if desc.is_empty() {
+                                    "task started".to_string()
+                                } else {
+                                    format!("task started — {desc}")
+                                }
+                            }
+                            "task_updated" => {
+                                let s = msg
+                                    .get("patch")
+                                    .and_then(|p| p.get("status"))
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("updated");
+                                format!("task {s}")
+                            }
+                            "task_notification" => {
+                                let s = msg
+                                    .get("status")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("update");
+                                let summary =
+                                    msg.get("summary").and_then(|v| v.as_str()).unwrap_or("");
+                                if summary.is_empty() {
+                                    s.to_string()
+                                } else {
+                                    format!("{s} — {summary}")
+                                }
+                            }
+                            _ => String::new(),
+                        };
+                        if !line.is_empty() {
+                            monitor_event_log
+                                .entry(id.to_string())
+                                .or_default()
+                                .push(format!("{last_ms}|{line}"));
+                        }
+                    }
+                }
+
+                // Disarm Monitor on task_notification { status: "completed" |
+                // "error" | "timeout" } so any final summary turn after it
+                // lands in chat (as intended).
+                if subtype == "task_notification" {
+                    let status = msg.get("status").and_then(|v| v.as_str());
+                    if matches!(status, Some("completed") | Some("error") | Some("timeout")) {
+                        if let Some(id) = tool_id {
+                            armed_monitors.remove(id);
+                        }
+                    }
+                }
+            }
             _ => {}
+        }
+    }
+
+    // Materialize Monitor event logs onto each Monitor tool_call.output.
+    // Frontend MonitorExpanded falls back to parsing `output` line-by-line
+    // when in-memory `events` is empty (after session reload).
+    for tc in tool_calls.iter_mut() {
+        if tc.name == "Monitor" {
+            if let Some(events) = monitor_event_log.remove(&tc.id) {
+                if !events.is_empty() {
+                    tc.output = Some(events.join("\n"));
+                }
+            }
         }
     }
 

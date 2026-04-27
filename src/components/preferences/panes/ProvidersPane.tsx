@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
 import { invoke } from '@/lib/transport'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
-import { Separator } from '@/components/ui/separator'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -18,23 +17,7 @@ import {
   type CustomCliProfile,
   PREDEFINED_CLI_PROFILES,
 } from '@/types/preferences'
-
-const SettingsSection: React.FC<{
-  title: string
-  description?: string
-  children: React.ReactNode
-}> = ({ title, description, children }) => (
-  <div className="space-y-4">
-    <div>
-      <h3 className="text-lg font-medium text-foreground">{title}</h3>
-      {description && (
-        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-      )}
-      <Separator className="mt-2" />
-    </div>
-    {children}
-  </div>
-)
+import { SettingsSection } from '../SettingsSection'
 
 export const ProvidersPane: React.FC = () => {
   const { data: preferences } = usePreferences()
@@ -59,6 +42,7 @@ export const ProvidersPane: React.FC = () => {
       <SettingsSection
         title="Claude CLI"
         description="Custom settings profiles for the Claude CLI. Each profile can override the API endpoint, authentication, and model routing."
+        anchorId="pref-providers-section-claude-cli"
       >
         <CliProfilesEditor profiles={profiles} onSave={handleSaveProfiles} />
 
