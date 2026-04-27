@@ -558,6 +558,33 @@ export const GeneralPane: React.FC = () => {
     cursorInstalled,
   ])
 
+  const installedBackendOptions = useMemo(
+    () =>
+      backendOptions.filter(option => {
+        switch (option.value) {
+          case 'claude':
+            return !!claudeInstalled
+          case 'codex':
+            return !!codexInstalled
+          case 'opencode':
+            return !!opencodeInstalled
+          case 'pi':
+            return !!piInstalled
+          case 'cursor':
+            return !!cursorInstalled
+          default:
+            return false
+        }
+      }),
+    [
+      claudeInstalled,
+      codexInstalled,
+      opencodeInstalled,
+      piInstalled,
+      cursorInstalled,
+    ]
+  )
+
   const handleCodexModelChange = (value: CodexModel) => {
     if (preferences) {
       patchPreferences.mutate({ selected_codex_model: value })
@@ -641,7 +668,7 @@ export const GeneralPane: React.FC = () => {
   const selectedCursorModelLabel =
     cursorModelOptions.find(option => option.value === selectedCursorModel)
       ?.label ?? formatCursorModelLabel(selectedCursorModel)
-  const buildBackendOptions = backendOptions
+  const buildBackendOptions = installedBackendOptions
   const cursorAuthMessage = cursorAuth?.timed_out
     ? 'Auth check timed out. Try again or run login manually.'
     : cursorAuth?.error
@@ -1730,17 +1757,7 @@ export const GeneralPane: React.FC = () => {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {backendOptions
-                  .filter(option =>
-                    option.value === 'claude'
-                      ? cliStatus?.installed
-                      : option.value === 'codex'
-                        ? codexStatus?.installed
-                        : option.value === 'opencode'
-                          ? opencodeStatus?.installed
-                          : cursorStatus?.installed
-                  )
-                  .map(option => (
+                {installedBackendOptions.map(option => (
                     <SelectItem key={option.value} value={option.value}>
                       <BackendLabel backend={option.value} />
                     </SelectItem>
@@ -2088,7 +2105,7 @@ export const GeneralPane: React.FC = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="default">Default</SelectItem>
-                    {backendOptions.map(option => (
+                    {installedBackendOptions.map(option => (
                       <SelectItem key={option.value} value={option.value}>
                         <BackendLabel backend={option.value} />
                       </SelectItem>
