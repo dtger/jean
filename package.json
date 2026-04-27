@@ -1,7 +1,7 @@
 {
   "name": "jean",
   "private": true,
-  "version": "0.1.44",
+  "version": "0.1.46-pi.1",
   "type": "module",
   "author": "Andras Bacsai",
   "copyright": "Copyright © 2025 Andras Bacsai. All rights reserved.",
@@ -42,6 +42,7 @@
     "fix:all": "bun run lint:fix && bun run format && bun run rust:fmt && bun run rust:clippy:fix",
     "build:analyze": "vite build && echo '\\n📊 Bundle analysis complete. Check dist/ folder sizes or use a tool like webpack-bundle-analyzer on the dist folder.'",
     "release:prepare": "node scripts/prepare-release.js",
+    "version:fork": "node scripts/bump-fork-version.js",
     "task:complete": "node scripts/complete-task.js",
     "task:rename-done": "node scripts/complete-task.js --rename-existing",
     "version:bump": "node scripts/bump-version.js"

@@ -109,6 +109,51 @@ git tag v1.0.0
 git push origin main --tags
 ```
 
+### Fork-Derived Release Versions
+
+Fork builds can derive their version from the upstream/source repository version while keeping their own release sequence. The format is:
+
+```text
+<upstream-version>-pi.<fork-build-number>
+```
+
+Examples:
+
+- Upstream `0.1.44` → fork `0.1.44-pi.1`
+- Next fork build from the same upstream version → `0.1.44-pi.2`
+- Upstream moves to `0.1.45` → fork resets to `0.1.45-pi.1`
+
+Use the helper script:
+
+```bash
+# Reads upstream/main:package.json, computes the next pi build number
+# from the current version and existing v<base>-pi.* tags, then updates
+# package.json, src-tauri/Cargo.toml, and src-tauri/tauri.conf.json.
+bun run version:fork
+```
+
+Useful options:
+
+```bash
+bun run version:fork -- --dry-run
+bun run version:fork -- --base 0.1.44
+bun run version:fork -- --channel pi
+bun run version:fork -- --remote upstream --branch main
+```
+
+Then release from the computed tag:
+
+```bash
+bun install --frozen-lockfile
+bun run check:all
+git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json bun.lock
+git commit -m "chore: release v0.1.44-pi.1"
+git tag v0.1.44-pi.1
+git push origin main --tags
+```
+
+The GitHub Actions release workflow also listens for fork release tags matching `v*.*.*-pi.*`. During release builds, it patches the updater endpoint to the repository running the workflow, so fork builds check the fork's GitHub Releases instead of the upstream repository.
+
 ## Auto-Updater
 
 The auto-updater provides:
