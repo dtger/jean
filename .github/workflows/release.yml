@@ -34,8 +34,6 @@ jobs:
             args: '--bundles deb,rpm'
           - platform: 'ubuntu-22.04-arm'
             args: '--bundles deb,rpm'
-          - platform: 'windows-latest'
-            args: '--bundles msi,nsis'
 
     runs-on: ${{ matrix.platform }}
     steps:
