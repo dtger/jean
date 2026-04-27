@@ -82,6 +82,7 @@ import type {
   PendingFile,
 } from '@/types/chat'
 import {
+  getDefaultExecutionModeForBackend,
   isAskUserQuestion,
   isPlanToolCall,
   normalizeCodexQuestions,
@@ -592,7 +593,7 @@ export function ChatWindow({
   const defaultModel: string = isCodexBackend
     ? (preferences?.selected_codex_model ?? 'gpt-5.4')
     : isPiBackend
-      ? (preferences?.selected_pi_model ?? 'pi/google/gemini-3-pro-preview')
+      ? (preferences?.selected_pi_model ?? 'pi/openai/gpt-5.5')
       : isOpencodeBackend
         ? (preferences?.selected_opencode_model ?? 'opencode/gpt-5.3-codex')
         : isCursorBackend
@@ -685,7 +686,10 @@ export function ChatWindow({
   const [hasInputValue, setHasInputValue] = useState(false)
   // Per-session execution mode (defaults to preference or 'plan' for new sessions)
   // Uses deferredSessionId for display consistency with other content
-  const defaultExecutionMode = preferences?.default_execution_mode ?? 'plan'
+  const defaultExecutionMode = getDefaultExecutionModeForBackend(
+    selectedBackend,
+    preferences?.default_execution_mode ?? 'plan'
+  )
   const executionMode = useChatStore(state =>
     deferredSessionId
       ? (state.executionModes[deferredSessionId] ??
@@ -1098,7 +1102,7 @@ export function ChatWindow({
           ? (preferences?.selected_codex_model ?? 'gpt-5.4')
           : yoloBackend === 'pi'
             ? (preferences?.selected_pi_model ??
-              'pi/google/gemini-3-pro-preview')
+              'pi/openai/gpt-5.5')
             : yoloBackend === 'opencode'
               ? (preferences?.selected_opencode_model ??
                 'opencode/gpt-5.3-codex')
@@ -1272,7 +1276,7 @@ export function ChatWindow({
           ? (preferences?.selected_codex_model ?? 'gpt-5.4')
           : buildBackend === 'pi'
             ? (preferences?.selected_pi_model ??
-              'pi/google/gemini-3-pro-preview')
+              'pi/openai/gpt-5.5')
             : buildBackend === 'opencode'
               ? (preferences?.selected_opencode_model ??
                 'opencode/gpt-5.3-codex')
@@ -1527,7 +1531,7 @@ export function ChatWindow({
           ? (preferences?.selected_codex_model ?? 'gpt-5.4')
           : modeBackend === 'pi'
             ? (preferences?.selected_pi_model ??
-              'pi/google/gemini-3-pro-preview')
+              'pi/openai/gpt-5.5')
             : modeBackend === 'opencode'
               ? (preferences?.selected_opencode_model ??
                 'opencode/gpt-5.3-codex')

@@ -448,7 +448,7 @@ export function MagicModal() {
       (backend === 'codex'
         ? (preferences?.selected_codex_model ?? 'gpt-5.4')
         : backend === 'pi'
-          ? (preferences?.selected_pi_model ?? 'pi/google/gemini-3-pro-preview')
+          ? (preferences?.selected_pi_model ?? 'pi/openai/gpt-5.5')
           : backend === 'opencode'
             ? (preferences?.selected_opencode_model ?? 'opencode/gpt-5.3-codex')
             : backend === 'cursor'
@@ -476,7 +476,7 @@ export function MagicModal() {
       (backend === 'codex'
         ? (preferences?.selected_codex_model ?? 'gpt-5.4')
         : backend === 'pi'
-          ? (preferences?.selected_pi_model ?? 'pi/google/gemini-3-pro-preview')
+          ? (preferences?.selected_pi_model ?? 'pi/openai/gpt-5.5')
           : backend === 'opencode'
             ? (preferences?.selected_opencode_model ?? 'opencode/gpt-5.3-codex')
             : backend === 'cursor'

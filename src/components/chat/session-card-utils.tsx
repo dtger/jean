@@ -3,6 +3,7 @@ import type {
   IndicatorVariant,
 } from '@/components/ui/status-indicator'
 import {
+  getDefaultExecutionModeForBackend,
   isAskUserQuestion,
   isPlanToolCall,
   type Session,
@@ -291,8 +292,8 @@ export function computeSessionCardData(
     ? (executingModes[session.id] ??
       executionModes[session.id] ??
       session.selected_execution_mode ??
-      'plan')
-    : (executionModes[session.id] ?? session.selected_execution_mode ?? 'plan')
+      getDefaultExecutionModeForBackend(session.backend))
+    : (executionModes[session.id] ?? session.selected_execution_mode ?? getDefaultExecutionModeForBackend(session.backend))
 
   // Determine status
   // Priority: permission > waiting > sending (active) > review > restart recovery > completed > idle

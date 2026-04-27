@@ -416,7 +416,7 @@ fn default_opencode_model() -> String {
 }
 
 fn default_pi_model() -> String {
-    "pi/google/gemini-3-pro-preview".to_string()
+    "pi/openai/gpt-5.5".to_string()
 }
 
 fn default_cursor_model() -> String {

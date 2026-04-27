@@ -1558,7 +1558,7 @@ export const defaultPreferences: AppPreferences = {
   default_backend: 'claude', // Default: Claude
   selected_codex_model: 'gpt-5.4', // Default: latest Codex model
   selected_opencode_model: 'opencode/gpt-5.3-codex', // Default OpenCode model
-  selected_pi_model: 'pi/google/gemini-3-pro-preview', // Default Pi model
+  selected_pi_model: 'pi/openai/gpt-5.5', // Default Pi model
   selected_cursor_model: 'cursor/auto', // Default Cursor model
   default_codex_reasoning_effort: 'high', // Default: high reasoning
   codex_multi_agent_enabled: false, // Default: disabled

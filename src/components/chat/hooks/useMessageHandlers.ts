@@ -225,7 +225,7 @@ function getDefaultModelForBackend(
     return preferences?.selected_codex_model ?? 'gpt-5.4'
   }
   if (backend === 'pi') {
-    return preferences?.selected_pi_model ?? 'pi/google/gemini-3-pro-preview'
+    return preferences?.selected_pi_model ?? 'pi/openai/gpt-5.5'
   }
   if (backend === 'opencode') {
     return preferences?.selected_opencode_model ?? 'opencode/gpt-5.3-codex'

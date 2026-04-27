@@ -11,7 +11,7 @@ const preferences: AppPreferences = {
   selected_model: 'sonnet',
   selected_codex_model: 'gpt-5.4-fast',
   selected_opencode_model: 'opencode/openai/gpt-5.3',
-  selected_pi_model: 'pi/google/gemini-3-pro-preview',
+  selected_pi_model: 'pi/openai/gpt-5.5',
   default_provider: 'openrouter',
   default_backend: 'claude',
 } as AppPreferences

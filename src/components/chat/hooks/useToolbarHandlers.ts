@@ -11,7 +11,10 @@ import type {
   ExecutionMode,
   Session,
 } from '@/types/chat'
-import { normalizeExecutionModeForBackend } from '@/types/chat'
+import {
+  getDefaultExecutionModeForBackend,
+  normalizeExecutionModeForBackend,
+} from '@/types/chat'
 import { applySessionSettingToSession } from '@/components/chat/hooks/session-setting-sync'
 
 interface UseToolbarHandlersParams {
@@ -32,6 +35,7 @@ interface UseToolbarHandlersParams {
         selected_opencode_model?: string
         selected_pi_model?: string
         selected_cursor_model?: string
+        default_execution_mode?: ExecutionMode
         custom_cli_profiles?: { name: string }[]
       }
     | undefined
@@ -81,10 +85,15 @@ export function useToolbarHandlers({
       backend: 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor',
       model: string
     ) => {
-      const nextExecutionMode = normalizeExecutionModeForBackend(
-        backend,
-        session?.selected_execution_mode ?? 'plan'
-      )
+      const nextExecutionMode = session?.selected_execution_mode
+        ? normalizeExecutionModeForBackend(
+            backend,
+            session.selected_execution_mode
+          )
+        : getDefaultExecutionModeForBackend(
+            backend,
+            preferences?.default_execution_mode ?? 'plan'
+          )
 
       if (activeSessionId && activeWorktreeId && activeWorktreePath) {
         useChatStore.getState().setSelectedBackend(activeSessionId, backend)
@@ -199,7 +208,7 @@ export function useToolbarHandlers({
           ? (preferences?.selected_codex_model ?? 'gpt-5.4')
           : backend === 'pi'
             ? (preferences?.selected_pi_model ??
-              'pi/google/gemini-3-pro-preview')
+              'pi/openai/gpt-5.5')
             : backend === 'opencode'
               ? (preferences?.selected_opencode_model ??
                 'opencode/gpt-5.3-codex')

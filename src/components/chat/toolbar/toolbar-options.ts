@@ -24,8 +24,8 @@ export const OPENCODE_MODEL_OPTIONS: { value: string; label: string }[] = [
 
 export const PI_MODEL_OPTIONS: { value: string; label: string }[] = [
   {
-    value: 'pi/google/gemini-3-pro-preview',
-    label: 'Gemini 3 Pro Preview (Google)',
+    value: 'pi/openai/gpt-5.5',
+    label: 'GPT-5.5 (OpenAI via Pi)',
   },
 ]
 

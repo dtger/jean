@@ -62,6 +62,7 @@ import {
   performGitPull,
 } from '@/services/git-status'
 import { isBaseSession } from '@/types/projects'
+import { getDefaultExecutionModeForBackend } from '@/types/chat'
 import type { Session } from '@/types/chat'
 import { isNativeApp } from '@/lib/environment'
 import { notify } from '@/lib/notifications'
@@ -190,10 +191,10 @@ function getSessionStatus(
     ? (storeState.executingModes[session.id] ??
       storeState.executionModes[session.id] ??
       session.selected_execution_mode ??
-      'plan')
+      getDefaultExecutionModeForBackend(session.backend))
     : (storeState.executionModes[session.id] ??
       session.selected_execution_mode ??
-      'plan')
+      getDefaultExecutionModeForBackend(session.backend))
   const isReviewing =
     storeState.reviewingSessions[session.id] || !!session.review_results
 

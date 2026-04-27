@@ -65,6 +65,14 @@ export function normalizeExecutionModeForBackend(
   return backend === 'cursor' ? 'yolo' : 'plan'
 }
 
+export function getDefaultExecutionModeForBackend(
+  backend: Backend | undefined,
+  mode: ExecutionMode = 'plan'
+): ExecutionMode {
+  if (backend === 'pi') return 'yolo'
+  return normalizeExecutionModeForBackend(backend, mode)
+}
+
 /**
  * A tool call made by Claude during a response
  */

@@ -610,7 +610,7 @@ export const GeneralPane: React.FC = () => {
     openCodeModelOptions.find(option => option.value === selectedOpenCodeModel)
       ?.label ?? formatOpenCodeModelLabelForSettings(selectedOpenCodeModel)
   const selectedPiModel =
-    preferences?.selected_pi_model ?? 'pi/google/gemini-3-pro-preview'
+    preferences?.selected_pi_model ?? 'pi/openai/gpt-5.5'
   const piModelOptions = (
     availablePiModels?.length
       ? availablePiModels.map(model => ({
