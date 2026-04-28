@@ -26,6 +26,11 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { invoke } from '@/lib/transport'
 import { useWsConnectionStatus } from '@/lib/transport'
@@ -236,19 +241,24 @@ export function DockBurgerButton({
 
   return (
     <DropdownMenu open={menuOpen} onOpenChange={handleOpenChange}>
-      <DropdownMenuTrigger asChild>
-        <button
-          ref={triggerRef}
-          type="button"
-          title={`Menu (${menuShortcut})`}
-          className={cn(
-            'flex h-8 items-center gap-1 px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground',
-            className
-          )}
-        >
-          <Menu className="h-3.5 w-3.5" />
-        </button>
-      </DropdownMenuTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <button
+              ref={triggerRef}
+              type="button"
+              aria-label={`Menu (${menuShortcut})`}
+              className={cn(
+                'flex h-8 items-center gap-1 px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground',
+                className
+              )}
+            >
+              <Menu className="h-3.5 w-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Menu ({menuShortcut})</TooltipContent>
+      </Tooltip>
       <DropdownMenuContent
         side="top"
         align="start"
