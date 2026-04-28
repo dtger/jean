@@ -257,6 +257,13 @@ export function SessionChatModal({
   )
   const hasBottomTerminal =
     isModalTerminalOpen && modalTerminalDockMode === 'bottom'
+  const isBrowserModalOpen = useBrowserStore(
+    state => state.modalOpen[worktreeId] ?? false
+  )
+  const browserModalDockMode = useBrowserStore(state => state.modalDockMode)
+  const hasBottomBrowser =
+    isBrowserModalOpen && browserModalDockMode === 'bottom'
+  const hasBottomDock = hasBottomTerminal || hasBottomBrowser
   const hasRunningTerminal = useTerminalStore(state => {
     const terminals = state.terminals[worktreeId] ?? []
     return terminals.some(t => state.runningTerminals.has(t.id))
@@ -793,7 +800,7 @@ export function SessionChatModal({
         className={cn(
           'absolute inset-0 z-10 flex min-w-0 overflow-hidden bg-background pt-[3px]',
           !isMobile && 'pb-2',
-          hasBottomTerminal ? 'flex-col' : 'flex-row'
+          hasBottomDock ? 'flex-col' : 'flex-row'
         )}
         style={
           isMobile
@@ -1458,9 +1465,6 @@ export function SessionChatModal({
               />
             )}
           </div>
-          {/* Browser bottom drawer mounts inside center column (flex-col) so
-              it pins below chat area without breaking outer flex-row siblings. */}
-          <ModalBrowserDrawer worktreeId={worktreeId} dockMode="bottom" />
         </div>
 
         {isModalTerminalOpen && modalTerminalDockMode === 'right' && (
@@ -1478,6 +1482,10 @@ export function SessionChatModal({
             dockMode="bottom"
           />
         )}
+        {/* Browser bottom drawer sits at outer-flex bottom row alongside
+            terminal-bottom; outer flex flips to flex-col when either is
+            docked at bottom (see hasBottomDock). */}
+        <ModalBrowserDrawer worktreeId={worktreeId} dockMode="bottom" />
         {modalTerminalDockMode === 'floating' && (
           <ModalTerminalDrawer
             worktreeId={worktreeId}

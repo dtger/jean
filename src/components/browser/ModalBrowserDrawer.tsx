@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils'
 import { isNativeApp } from '@/lib/environment'
 import { useBrowserStore } from '@/store/browser-store'
 import type { ModalBrowserDockMode } from '@/types/browser'
+import { MODAL_TERMINAL_PRIMARY_ROW_CLASS } from '@/components/chat/modal-terminal-layout'
 import { BrowserView } from './BrowserView'
 
 const WIDTH_MIN = 320
@@ -103,7 +104,12 @@ export const ModalBrowserDrawer = memo(function ModalBrowserDrawer({
 
   const header = (
     <div className="shrink-0 border-b">
-      <div className="flex items-center justify-between gap-2 px-3 py-1.5">
+      <div
+        className={cn(
+          'flex items-center justify-between gap-2 px-4 py-2',
+          MODAL_TERMINAL_PRIMARY_ROW_CLASS
+        )}
+      >
         <div className="flex items-center gap-2">
           <Globe className="h-4 w-4" />
           {isFloating ? (
@@ -216,6 +222,7 @@ export const ModalBrowserDrawer = memo(function ModalBrowserDrawer({
         showCloseButton={false}
         className="p-0"
         style={{ width: `${width}px`, maxWidth: '95vw' }}
+        data-browser-host="true"
       >
         {content}
       </SheetContent>

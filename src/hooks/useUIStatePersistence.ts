@@ -407,18 +407,42 @@ export function useUIStatePersistence() {
       })
       useBrowserStore.getState().hydrateTabs(hydratedTabs, browserActiveTabIds)
     }
-    if (uiState.browser_side_pane_open) {
-      useBrowserStore.setState({
-        sidePaneOpen: uiState.browser_side_pane_open,
-      })
+    // Browser surfaces are mutually exclusive per worktree (one webview, one
+    // position). If persisted state has multiple flags true (legacy bug or
+    // hand-edited file), keep only one with priority: modal > sidePane > bottom.
+    const persistedSidePaneOpen = uiState.browser_side_pane_open ?? {}
+    const persistedModalOpen = uiState.browser_modal_open ?? {}
+    const persistedBottomOpen = uiState.browser_bottom_panel_open ?? {}
+    const sanitizedSidePane: Record<string, boolean> = {}
+    const sanitizedModal: Record<string, boolean> = {}
+    const sanitizedBottom: Record<string, boolean> = {}
+    const allWorktreeIds = new Set([
+      ...Object.keys(persistedSidePaneOpen),
+      ...Object.keys(persistedModalOpen),
+      ...Object.keys(persistedBottomOpen),
+    ])
+    for (const wid of allWorktreeIds) {
+      if (persistedModalOpen[wid]) {
+        sanitizedModal[wid] = true
+      } else if (persistedSidePaneOpen[wid]) {
+        sanitizedSidePane[wid] = true
+      } else if (persistedBottomOpen[wid]) {
+        sanitizedBottom[wid] = true
+      }
+    }
+    if (Object.keys(sanitizedSidePane).length > 0) {
+      useBrowserStore.setState({ sidePaneOpen: sanitizedSidePane })
+    }
+    if (Object.keys(sanitizedModal).length > 0) {
+      useBrowserStore.setState({ modalOpen: sanitizedModal })
+    }
+    if (Object.keys(sanitizedBottom).length > 0) {
+      useBrowserStore.setState({ bottomPanelOpen: sanitizedBottom })
     }
     if (uiState.browser_side_pane_width != null) {
       useBrowserStore.setState({
         sidePaneWidth: uiState.browser_side_pane_width,
       })
-    }
-    if (uiState.browser_modal_open) {
-      useBrowserStore.setState({ modalOpen: uiState.browser_modal_open })
     }
     if (uiState.browser_modal_dock_mode) {
       useBrowserStore.setState({
@@ -431,15 +455,39 @@ export function useUIStatePersistence() {
     if (uiState.browser_modal_height != null) {
       useBrowserStore.setState({ modalHeight: uiState.browser_modal_height })
     }
-    if (uiState.browser_bottom_panel_open) {
-      useBrowserStore.setState({
-        bottomPanelOpen: uiState.browser_bottom_panel_open,
-      })
-    }
     if (uiState.browser_bottom_panel_height != null) {
       useBrowserStore.setState({
         bottomPanelHeight: uiState.browser_bottom_panel_height,
       })
+    }
+    // Cross-pane dock collision check: if browser modal and terminal modal
+    // are both open for any shared worktree at the same dock side, flip the
+    // browser side. (Terminal restore happens above; we run last to win.)
+    {
+      const browserDock = useBrowserStore.getState().modalDockMode
+      const terminalState = useTerminalStore.getState()
+      const terminalDock = terminalState.modalTerminalDockMode
+      const sharedCollision = Object.keys(sanitizedModal).some(
+        wid =>
+          sanitizedModal[wid] &&
+          (terminalState.modalTerminalOpen[wid] ?? false) &&
+          browserDock === terminalDock
+      )
+      if (sharedCollision) {
+        const flipped =
+          browserDock === 'left'
+            ? 'right'
+            : browserDock === 'right'
+              ? 'left'
+              : browserDock === 'bottom'
+                ? 'floating'
+                : 'right'
+        logger.debug('Resolving browser/terminal dock collision on hydrate', {
+          from: browserDock,
+          to: flipped,
+        })
+        useBrowserStore.setState({ modalDockMode: flipped })
+      }
     }
 
     // Restore last opened worktree+session per project (convert snake_case → camelCase keys)

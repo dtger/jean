@@ -174,8 +174,13 @@ export function useBrowserEvents(): void {
  *
  * Reactive via MutationObserver on body subtree watching `data-state` attr.
  */
+// Exclude browser/terminal own Sheet hosts — Radix Dialog wraps their content
+// with role="dialog", but those panes ARE the browser surface (or its sibling),
+// not blocking modals. Without exclusion, opening the browser as a floating
+// Sheet would suppress its own webview, and opening the terminal Sheet would
+// hide the browser webview behind it.
 const BLOCKING_SELECTOR =
-  '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]'
+  '[role="dialog"][data-state="open"]:not([data-browser-host]):not([data-terminal-host]), [role="alertdialog"][data-state="open"]'
 
 export function useAnyBlockingModalOpen(): boolean {
   const [isOpen, setIsOpen] = useState(false)

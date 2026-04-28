@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import { getFilename } from '@/lib/path-utils'
 import { generateId } from '@/lib/uuid'
 import type { ModalTerminalDockMode } from '@/types/ui-state'
+import { pickNonCollidingDock, type DockMode } from './dock-coordination'
+import { useBrowserStore } from './browser-store'
 
 /** A single terminal instance */
 export interface TerminalInstance {
@@ -75,6 +77,20 @@ function generateTerminalId(): string {
   return generateId()
 }
 
+/** Pick a terminal dock side that doesn't collide with the open browser modal. */
+function resolveTerminalDock(
+  worktreeId: string,
+  desired: ModalTerminalDockMode
+): ModalTerminalDockMode {
+  const browser = useBrowserStore.getState()
+  const otherOpen = browser.modalOpen[worktreeId] ?? false
+  return pickNonCollidingDock(
+    desired as DockMode,
+    otherOpen,
+    browser.modalDockMode as DockMode
+  ) as ModalTerminalDockMode
+}
+
 function getDefaultLabel(command: string | null): string {
   if (!command) return 'Shell'
   // Extract first word or command name
@@ -133,18 +149,29 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   setModalTerminalOpen: (worktreeId, open) =>
     set(state => {
       if ((state.modalTerminalOpen[worktreeId] ?? false) === open) return state
+      const dockMode = open
+        ? resolveTerminalDock(worktreeId, state.modalTerminalDockMode)
+        : state.modalTerminalDockMode
       return {
         modalTerminalOpen: { ...state.modalTerminalOpen, [worktreeId]: open },
+        modalTerminalDockMode: dockMode,
       }
     }),
 
   toggleModalTerminal: worktreeId =>
-    set(state => ({
-      modalTerminalOpen: {
-        ...state.modalTerminalOpen,
-        [worktreeId]: !(state.modalTerminalOpen[worktreeId] ?? false),
-      },
-    })),
+    set(state => {
+      const next = !(state.modalTerminalOpen[worktreeId] ?? false)
+      const dockMode = next
+        ? resolveTerminalDock(worktreeId, state.modalTerminalDockMode)
+        : state.modalTerminalDockMode
+      return {
+        modalTerminalOpen: {
+          ...state.modalTerminalOpen,
+          [worktreeId]: next,
+        },
+        modalTerminalDockMode: dockMode,
+      }
+    }),
 
   setModalTerminalDockMode: dockMode =>
     set(state =>

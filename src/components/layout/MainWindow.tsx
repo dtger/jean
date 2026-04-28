@@ -145,6 +145,7 @@ import { Toaster } from '@/components/ui/sonner'
 import { BrowserSidePane } from '@/components/browser/BrowserSidePane'
 import { BrowserPanel } from '@/components/browser/BrowserPanel'
 import { useBrowserEvents } from '@/hooks/useBrowserPane'
+import { useToasterOffset } from '@/hooks/useToasterOffset'
 import { useWindowMaximized } from '@/hooks/use-window-maximized'
 import { useUIStore } from '@/store/ui-store'
 import { useProjectsStore } from '@/store/projects-store'
@@ -189,6 +190,7 @@ function useRetainedMount(active: boolean) {
 
 export function MainWindow() {
   const isMaximized = useWindowMaximized()
+  const toasterOffset = useToasterOffset()
   const leftSidebarVisible = useUIStore(state => state.leftSidebarVisible)
   const leftSidebarSize = useUIStore(state => state.leftSidebarSize)
   const setLeftSidebarSize = useUIStore(state => state.setLeftSidebarSize)
@@ -617,7 +619,7 @@ export function MainWindow() {
       <TeardownOutputDialog />
       <Toaster
         position="bottom-right"
-        offset="52px"
+        offset={toasterOffset}
         expand={true}
         toastOptions={{
           classNames: {

@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { generateId } from '@/lib/uuid'
 import type { BrowserTab, ModalBrowserDockMode } from '@/types/browser'
+import { pickNonCollidingDock, type DockMode } from './dock-coordination'
+import { useTerminalStore } from './terminal-store'
 
 // Opaque white data: URL instead of about:blank — WKWebView renders about:blank
 // as a transparent surface, so a previous tab's pixels can bleed through when
@@ -89,6 +91,20 @@ function findWorktreeForTab(
     if (list.some(t => t.id === tabId)) return wid
   }
   return null
+}
+
+/** Pick a browser dock side that doesn't collide with the open terminal modal. */
+function resolveBrowserDock(
+  worktreeId: string,
+  desired: ModalBrowserDockMode
+): ModalBrowserDockMode {
+  const terminal = useTerminalStore.getState()
+  const otherOpen = terminal.modalTerminalOpen[worktreeId] ?? false
+  return pickNonCollidingDock(
+    desired as DockMode,
+    otherOpen,
+    terminal.modalTerminalDockMode as DockMode
+  ) as ModalBrowserDockMode
 }
 
 export const useBrowserStore = create<BrowserState>((set, get) => ({
@@ -247,8 +263,12 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
     set(state => {
       if ((state.modalOpen[worktreeId] ?? false) === open) return state
       const closeOthers = open
+      const dockMode = open
+        ? resolveBrowserDock(worktreeId, state.modalDockMode)
+        : state.modalDockMode
       return {
         modalOpen: { ...state.modalOpen, [worktreeId]: open },
+        modalDockMode: dockMode,
         sidePaneOpen: closeOthers
           ? { ...state.sidePaneOpen, [worktreeId]: false }
           : state.sidePaneOpen,
@@ -261,8 +281,12 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
   toggleModal: worktreeId =>
     set(state => {
       const next = !(state.modalOpen[worktreeId] ?? false)
+      const dockMode = next
+        ? resolveBrowserDock(worktreeId, state.modalDockMode)
+        : state.modalDockMode
       return {
         modalOpen: { ...state.modalOpen, [worktreeId]: next },
+        modalDockMode: dockMode,
         sidePaneOpen: next
           ? { ...state.sidePaneOpen, [worktreeId]: false }
           : state.sidePaneOpen,
