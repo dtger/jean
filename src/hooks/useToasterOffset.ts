@@ -1,5 +1,7 @@
 import { useBrowserStore } from '@/store/browser-store'
 import { useChatStore } from '@/store/chat-store'
+import { useUIStore } from '@/store/ui-store'
+import { useProjectsStore } from '@/store/projects-store'
 import { isNativeApp } from '@/lib/environment'
 
 const BASE = 52
@@ -7,14 +9,26 @@ const GUTTER = 12
 
 export function useToasterOffset() {
   const activeWorktreeId = useChatStore(s => s.activeWorktreeId)
+  const sessionChatModalOpen = useUIStore(s => s.sessionChatModalOpen)
+  const sessionChatModalWorktreeId = useUIStore(
+    s => s.sessionChatModalWorktreeId
+  )
+  const selectedWorktreeId = useProjectsStore(s => s.selectedWorktreeId)
+
+  // Match FloatingDock's resolution order so the hook tracks whichever
+  // worktree is actually displaying browser surfaces.
+  const currentWorktreeId = sessionChatModalOpen
+    ? (sessionChatModalWorktreeId ?? activeWorktreeId ?? selectedWorktreeId)
+    : (activeWorktreeId ?? selectedWorktreeId)
+
   const sidePaneOpen = useBrowserStore(s =>
-    activeWorktreeId ? (s.sidePaneOpen[activeWorktreeId] ?? false) : false
+    currentWorktreeId ? (s.sidePaneOpen[currentWorktreeId] ?? false) : false
   )
   const bottomPanelOpen = useBrowserStore(s =>
-    activeWorktreeId ? (s.bottomPanelOpen[activeWorktreeId] ?? false) : false
+    currentWorktreeId ? (s.bottomPanelOpen[currentWorktreeId] ?? false) : false
   )
   const modalOpen = useBrowserStore(s =>
-    activeWorktreeId ? (s.modalOpen[activeWorktreeId] ?? false) : false
+    currentWorktreeId ? (s.modalOpen[currentWorktreeId] ?? false) : false
   )
   const sidePaneWidth = useBrowserStore(s => s.sidePaneWidth)
   const bottomPanelHeight = useBrowserStore(s => s.bottomPanelHeight)

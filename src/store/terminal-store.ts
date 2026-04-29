@@ -2,7 +2,6 @@ import { create } from 'zustand'
 import { getFilename } from '@/lib/path-utils'
 import { generateId } from '@/lib/uuid'
 import type { ModalTerminalDockMode } from '@/types/ui-state'
-import { pickNonCollidingDock, type DockMode } from './dock-coordination'
 import { useBrowserStore } from './browser-store'
 
 /** A single terminal instance */
@@ -77,18 +76,26 @@ function generateTerminalId(): string {
   return generateId()
 }
 
-/** Pick a terminal dock side that doesn't collide with the open browser modal. */
-function resolveTerminalDock(
-  worktreeId: string,
-  desired: ModalTerminalDockMode
-): ModalTerminalDockMode {
+/** Close every browser surface for this worktree — terminal modal and
+ * browser surfaces are mutually exclusive. Called inside terminal-store
+ * actions when opening the terminal modal. */
+function closeBrowserSurfacesFor(worktreeId: string): void {
   const browser = useBrowserStore.getState()
-  const otherOpen = browser.modalOpen[worktreeId] ?? false
-  return pickNonCollidingDock(
-    desired as DockMode,
-    otherOpen,
-    browser.modalDockMode as DockMode
-  ) as ModalTerminalDockMode
+  const sideOpen = browser.sidePaneOpen[worktreeId] ?? false
+  const modalOpen = browser.modalOpen[worktreeId] ?? false
+  const bottomOpen = browser.bottomPanelOpen[worktreeId] ?? false
+  if (!sideOpen && !modalOpen && !bottomOpen) return
+  useBrowserStore.setState({
+    sidePaneOpen: sideOpen
+      ? { ...browser.sidePaneOpen, [worktreeId]: false }
+      : browser.sidePaneOpen,
+    modalOpen: modalOpen
+      ? { ...browser.modalOpen, [worktreeId]: false }
+      : browser.modalOpen,
+    bottomPanelOpen: bottomOpen
+      ? { ...browser.bottomPanelOpen, [worktreeId]: false }
+      : browser.bottomPanelOpen,
+  })
 }
 
 function getDefaultLabel(command: string | null): string {
@@ -146,32 +153,28 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       state.terminalHeight === height ? state : { terminalHeight: height }
     ),
 
-  setModalTerminalOpen: (worktreeId, open) =>
-    set(state => {
-      if ((state.modalTerminalOpen[worktreeId] ?? false) === open) return state
-      const dockMode = open
-        ? resolveTerminalDock(worktreeId, state.modalTerminalDockMode)
-        : state.modalTerminalDockMode
-      return {
-        modalTerminalOpen: { ...state.modalTerminalOpen, [worktreeId]: open },
-        modalTerminalDockMode: dockMode,
-      }
-    }),
+  setModalTerminalOpen: (worktreeId, open) => {
+    const current =
+      useTerminalStore.getState().modalTerminalOpen[worktreeId] ?? false
+    if (current === open) return
+    if (open) closeBrowserSurfacesFor(worktreeId)
+    set(state => ({
+      modalTerminalOpen: { ...state.modalTerminalOpen, [worktreeId]: open },
+    }))
+  },
 
-  toggleModalTerminal: worktreeId =>
-    set(state => {
-      const next = !(state.modalTerminalOpen[worktreeId] ?? false)
-      const dockMode = next
-        ? resolveTerminalDock(worktreeId, state.modalTerminalDockMode)
-        : state.modalTerminalDockMode
-      return {
-        modalTerminalOpen: {
-          ...state.modalTerminalOpen,
-          [worktreeId]: next,
-        },
-        modalTerminalDockMode: dockMode,
-      }
-    }),
+  toggleModalTerminal: worktreeId => {
+    const current =
+      useTerminalStore.getState().modalTerminalOpen[worktreeId] ?? false
+    const next = !current
+    if (next) closeBrowserSurfacesFor(worktreeId)
+    set(state => ({
+      modalTerminalOpen: {
+        ...state.modalTerminalOpen,
+        [worktreeId]: next,
+      },
+    }))
+  },
 
   setModalTerminalDockMode: dockMode =>
     set(state =>

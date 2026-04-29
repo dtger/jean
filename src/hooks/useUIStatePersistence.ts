@@ -460,33 +460,41 @@ export function useUIStatePersistence() {
         bottomPanelHeight: uiState.browser_bottom_panel_height,
       })
     }
-    // Cross-pane dock collision check: if browser modal and terminal modal
-    // are both open for any shared worktree at the same dock side, flip the
-    // browser side. (Terminal restore happens above; we run last to win.)
+    // Cross-pane mutual exclusion: browser surfaces and terminal modal are
+    // mutually exclusive per worktree. If both restored as open for the same
+    // worktree (legacy/hand-edited state), close every browser surface there
+    // and let the terminal win — terminal is the more recently used surface
+    // for most users and avoids reopening into a broken layout.
     {
-      const browserDock = useBrowserStore.getState().modalDockMode
       const terminalState = useTerminalStore.getState()
-      const terminalDock = terminalState.modalTerminalDockMode
-      const sharedCollision = Object.keys(sanitizedModal).some(
-        wid =>
-          sanitizedModal[wid] &&
-          (terminalState.modalTerminalOpen[wid] ?? false) &&
-          browserDock === terminalDock
-      )
-      if (sharedCollision) {
-        const flipped =
-          browserDock === 'left'
-            ? 'right'
-            : browserDock === 'right'
-              ? 'left'
-              : browserDock === 'bottom'
-                ? 'floating'
-                : 'right'
-        logger.debug('Resolving browser/terminal dock collision on hydrate', {
-          from: browserDock,
-          to: flipped,
+      const fixedSidePane = { ...sanitizedSidePane }
+      const fixedModal = { ...sanitizedModal }
+      const fixedBottom = { ...sanitizedBottom }
+      let changed = false
+      for (const wid of Object.keys(terminalState.modalTerminalOpen)) {
+        if (!terminalState.modalTerminalOpen[wid]) continue
+        if (fixedSidePane[wid]) {
+          fixedSidePane[wid] = false
+          changed = true
+        }
+        if (fixedModal[wid]) {
+          fixedModal[wid] = false
+          changed = true
+        }
+        if (fixedBottom[wid]) {
+          fixedBottom[wid] = false
+          changed = true
+        }
+      }
+      if (changed) {
+        logger.debug(
+          'Resolving browser/terminal mutual exclusion on hydrate (closing browser)'
+        )
+        useBrowserStore.setState({
+          sidePaneOpen: fixedSidePane,
+          modalOpen: fixedModal,
+          bottomPanelOpen: fixedBottom,
         })
-        useBrowserStore.setState({ modalDockMode: flipped })
       }
     }
 

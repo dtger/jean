@@ -1756,6 +1756,7 @@ export function ChatWindow({
     handleOpenPr,
     handleReview,
     handleMerge,
+    handleMergePr,
     handleResolveConflicts,
     handleResolvePrConflicts,
     executeMerge,
@@ -1926,6 +1927,7 @@ export function ChatWindow({
     handleOpenPr,
     handleReview,
     handleMerge,
+    handleMergePr,
     handleResolveConflicts,
     handleInvestigateWorkflowRun,
     handleInvestigate,
@@ -2841,6 +2843,7 @@ export function ChatWindow({
                                 onOpenPr={handleOpenPr}
                                 onReview={() => handleReview()}
                                 onMerge={handleMerge}
+                                onMergePr={handleMergePr}
                                 onResolvePrConflicts={handleResolvePrConflicts}
                                 onBackendModelChange={
                                   handleToolbarBackendModelChange

@@ -31,6 +31,9 @@ function normalizeUrl(input: string): string {
   const trimmed = input.trim()
   if (!trimmed) return trimmed
   if (/^[a-z]+:\/\//i.test(trimmed)) return trimmed
+  // Loopback hosts → http:// (local dev servers usually lack TLS).
+  if (/^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:\d+)?(\/|$)/i.test(trimmed))
+    return `http://${trimmed}`
   // If it has a dot and no spaces, treat as URL; else as Google search.
   if (/^[^\s]+\.[^\s]+/.test(trimmed)) return `https://${trimmed}`
   return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`

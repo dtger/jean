@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import { generateId } from '@/lib/uuid'
 import type { BrowserTab, ModalBrowserDockMode } from '@/types/browser'
-import { pickNonCollidingDock, type DockMode } from './dock-coordination'
 import { useTerminalStore } from './terminal-store'
 
 // Opaque white data: URL instead of about:blank — WKWebView renders about:blank
@@ -93,18 +92,18 @@ function findWorktreeForTab(
   return null
 }
 
-/** Pick a browser dock side that doesn't collide with the open terminal modal. */
-function resolveBrowserDock(
-  worktreeId: string,
-  desired: ModalBrowserDockMode
-): ModalBrowserDockMode {
+/** Close the terminal modal for this worktree — browser and terminal modal
+ * surfaces are mutually exclusive. Called inside browser-store actions when
+ * opening the browser modal. */
+function closeTerminalModalFor(worktreeId: string): void {
   const terminal = useTerminalStore.getState()
-  const otherOpen = terminal.modalTerminalOpen[worktreeId] ?? false
-  return pickNonCollidingDock(
-    desired as DockMode,
-    otherOpen,
-    terminal.modalTerminalDockMode as DockMode
-  ) as ModalBrowserDockMode
+  if (!(terminal.modalTerminalOpen[worktreeId] ?? false)) return
+  useTerminalStore.setState({
+    modalTerminalOpen: {
+      ...terminal.modalTerminalOpen,
+      [worktreeId]: false,
+    },
+  })
 }
 
 export const useBrowserStore = create<BrowserState>((set, get) => ({
@@ -224,77 +223,71 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
 
   hydrateTabs: (tabs, activeTabIds) => set({ tabs, activeTabIds }),
 
-  setSidePaneOpen: (worktreeId, open) =>
-    set(state => {
-      if ((state.sidePaneOpen[worktreeId] ?? false) === open) return state
-      // Surfaces are mutually exclusive (one tab → one webview → one position).
-      const closeOthers = open
-      return {
-        sidePaneOpen: { ...state.sidePaneOpen, [worktreeId]: open },
-        modalOpen: closeOthers
-          ? { ...state.modalOpen, [worktreeId]: false }
-          : state.modalOpen,
-        bottomPanelOpen: closeOthers
-          ? { ...state.bottomPanelOpen, [worktreeId]: false }
-          : state.bottomPanelOpen,
-      }
-    }),
+  setSidePaneOpen: (worktreeId, open) => {
+    const current = useBrowserStore.getState().sidePaneOpen[worktreeId] ?? false
+    if (current === open) return
+    if (open) closeTerminalModalFor(worktreeId)
+    // Surfaces are mutually exclusive (one tab → one webview → one position).
+    set(state => ({
+      sidePaneOpen: { ...state.sidePaneOpen, [worktreeId]: open },
+      modalOpen: open
+        ? { ...state.modalOpen, [worktreeId]: false }
+        : state.modalOpen,
+      bottomPanelOpen: open
+        ? { ...state.bottomPanelOpen, [worktreeId]: false }
+        : state.bottomPanelOpen,
+    }))
+  },
 
-  toggleSidePane: worktreeId =>
-    set(state => {
-      const next = !(state.sidePaneOpen[worktreeId] ?? false)
-      return {
-        sidePaneOpen: { ...state.sidePaneOpen, [worktreeId]: next },
-        modalOpen: next
-          ? { ...state.modalOpen, [worktreeId]: false }
-          : state.modalOpen,
-        bottomPanelOpen: next
-          ? { ...state.bottomPanelOpen, [worktreeId]: false }
-          : state.bottomPanelOpen,
-      }
-    }),
+  toggleSidePane: worktreeId => {
+    const current = useBrowserStore.getState().sidePaneOpen[worktreeId] ?? false
+    const next = !current
+    if (next) closeTerminalModalFor(worktreeId)
+    set(state => ({
+      sidePaneOpen: { ...state.sidePaneOpen, [worktreeId]: next },
+      modalOpen: next
+        ? { ...state.modalOpen, [worktreeId]: false }
+        : state.modalOpen,
+      bottomPanelOpen: next
+        ? { ...state.bottomPanelOpen, [worktreeId]: false }
+        : state.bottomPanelOpen,
+    }))
+  },
 
   setSidePaneWidth: width =>
     set(state =>
       state.sidePaneWidth === width ? state : { sidePaneWidth: width }
     ),
 
-  setModalOpen: (worktreeId, open) =>
-    set(state => {
-      if ((state.modalOpen[worktreeId] ?? false) === open) return state
-      const closeOthers = open
-      const dockMode = open
-        ? resolveBrowserDock(worktreeId, state.modalDockMode)
-        : state.modalDockMode
-      return {
-        modalOpen: { ...state.modalOpen, [worktreeId]: open },
-        modalDockMode: dockMode,
-        sidePaneOpen: closeOthers
-          ? { ...state.sidePaneOpen, [worktreeId]: false }
-          : state.sidePaneOpen,
-        bottomPanelOpen: closeOthers
-          ? { ...state.bottomPanelOpen, [worktreeId]: false }
-          : state.bottomPanelOpen,
-      }
-    }),
+  setModalOpen: (worktreeId, open) => {
+    const current = useBrowserStore.getState().modalOpen[worktreeId] ?? false
+    if (current === open) return
+    if (open) closeTerminalModalFor(worktreeId)
+    set(state => ({
+      modalOpen: { ...state.modalOpen, [worktreeId]: open },
+      sidePaneOpen: open
+        ? { ...state.sidePaneOpen, [worktreeId]: false }
+        : state.sidePaneOpen,
+      bottomPanelOpen: open
+        ? { ...state.bottomPanelOpen, [worktreeId]: false }
+        : state.bottomPanelOpen,
+    }))
+  },
 
-  toggleModal: worktreeId =>
-    set(state => {
-      const next = !(state.modalOpen[worktreeId] ?? false)
-      const dockMode = next
-        ? resolveBrowserDock(worktreeId, state.modalDockMode)
-        : state.modalDockMode
-      return {
-        modalOpen: { ...state.modalOpen, [worktreeId]: next },
-        modalDockMode: dockMode,
-        sidePaneOpen: next
-          ? { ...state.sidePaneOpen, [worktreeId]: false }
-          : state.sidePaneOpen,
-        bottomPanelOpen: next
-          ? { ...state.bottomPanelOpen, [worktreeId]: false }
-          : state.bottomPanelOpen,
-      }
-    }),
+  toggleModal: worktreeId => {
+    const current = useBrowserStore.getState().modalOpen[worktreeId] ?? false
+    const next = !current
+    if (next) closeTerminalModalFor(worktreeId)
+    set(state => ({
+      modalOpen: { ...state.modalOpen, [worktreeId]: next },
+      sidePaneOpen: next
+        ? { ...state.sidePaneOpen, [worktreeId]: false }
+        : state.sidePaneOpen,
+      bottomPanelOpen: next
+        ? { ...state.bottomPanelOpen, [worktreeId]: false }
+        : state.bottomPanelOpen,
+    }))
+  },
 
   setModalDockMode: mode =>
     set(state =>
@@ -309,34 +302,37 @@ export const useBrowserStore = create<BrowserState>((set, get) => ({
       state.modalHeight === height ? state : { modalHeight: height }
     ),
 
-  setBottomPanelOpen: (worktreeId, open) =>
-    set(state => {
-      if ((state.bottomPanelOpen[worktreeId] ?? false) === open) return state
-      const closeOthers = open
-      return {
-        bottomPanelOpen: { ...state.bottomPanelOpen, [worktreeId]: open },
-        sidePaneOpen: closeOthers
-          ? { ...state.sidePaneOpen, [worktreeId]: false }
-          : state.sidePaneOpen,
-        modalOpen: closeOthers
-          ? { ...state.modalOpen, [worktreeId]: false }
-          : state.modalOpen,
-      }
-    }),
+  setBottomPanelOpen: (worktreeId, open) => {
+    const current =
+      useBrowserStore.getState().bottomPanelOpen[worktreeId] ?? false
+    if (current === open) return
+    if (open) closeTerminalModalFor(worktreeId)
+    set(state => ({
+      bottomPanelOpen: { ...state.bottomPanelOpen, [worktreeId]: open },
+      sidePaneOpen: open
+        ? { ...state.sidePaneOpen, [worktreeId]: false }
+        : state.sidePaneOpen,
+      modalOpen: open
+        ? { ...state.modalOpen, [worktreeId]: false }
+        : state.modalOpen,
+    }))
+  },
 
-  toggleBottomPanel: worktreeId =>
-    set(state => {
-      const next = !(state.bottomPanelOpen[worktreeId] ?? false)
-      return {
-        bottomPanelOpen: { ...state.bottomPanelOpen, [worktreeId]: next },
-        sidePaneOpen: next
-          ? { ...state.sidePaneOpen, [worktreeId]: false }
-          : state.sidePaneOpen,
-        modalOpen: next
-          ? { ...state.modalOpen, [worktreeId]: false }
-          : state.modalOpen,
-      }
-    }),
+  toggleBottomPanel: worktreeId => {
+    const current =
+      useBrowserStore.getState().bottomPanelOpen[worktreeId] ?? false
+    const next = !current
+    if (next) closeTerminalModalFor(worktreeId)
+    set(state => ({
+      bottomPanelOpen: { ...state.bottomPanelOpen, [worktreeId]: next },
+      sidePaneOpen: next
+        ? { ...state.sidePaneOpen, [worktreeId]: false }
+        : state.sidePaneOpen,
+      modalOpen: next
+        ? { ...state.modalOpen, [worktreeId]: false }
+        : state.modalOpen,
+    }))
+  },
 
   setBottomPanelHeight: height =>
     set(state =>
