@@ -10,15 +10,11 @@ import {
 import {
   Archive,
   ChevronDown,
-  Code,
   Eye,
   EyeOff,
   FileText,
-  FolderOpen,
   GitBranchPlus,
   GitPullRequestArrow,
-  Github,
-  MoreHorizontal,
   Pencil,
   Sparkles,
   Tag,
@@ -78,19 +74,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import {
-  useOpenWorktreeInEditor,
-  useOpenWorktreeInTerminal,
-  useOpenWorktreeInFinder,
-  useOpenBranchOnGitHub,
-} from '@/services/projects'
-import { getOpenInDefaultLabel } from '@/types/preferences'
 import { DEFAULT_KEYBINDINGS, formatShortcutDisplay } from '@/types/keybindings'
 import {
   getResumeCommand,
@@ -348,17 +333,6 @@ export function SessionChatModal({
     return () => cancelAnimationFrame(scrollId)
   }, [isOpen, currentSessionId, sessions.length, currentSessionStatus])
 
-  // Plan/recap indicators for tab bar buttons
-  const hasPlan =
-    (currentSessionId ? !!planFilePaths[currentSessionId] : false) ||
-    !!currentSession?.plan_file_path
-  const hasRecap =
-    (currentSessionId ? !!sessionDigests[currentSessionId] : false) ||
-    !!currentSession?.digest
-  const currentResumeCommand = currentSession
-    ? getResumeCommand(currentSession)
-    : null
-
   // Git status for header badges
   const { data: worktree } = useWorktree(worktreeId)
   const { data: projects } = useProjects()
@@ -385,12 +359,6 @@ export function SessionChatModal({
   const branchDiffRemoved =
     gitStatus?.branch_diff_removed ?? worktree?.cached_branch_diff_removed ?? 0
   const defaultBranch = project?.default_branch ?? 'main'
-
-  // Open-in actions for mobile overflow menu
-  const openInEditor = useOpenWorktreeInEditor()
-  const openInTerminal = useOpenWorktreeInTerminal()
-  const openInFinder = useOpenWorktreeInFinder()
-  const openOnGitHub = useOpenBranchOnGitHub()
 
   const hasSetActiveRef = useRef<string | null>(null)
 
@@ -1043,149 +1011,6 @@ export function SessionChatModal({
                     </div>
                   )}
                 </div>
-                {/* Mobile: overflow menu */}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0 flex sm:hidden"
-                      aria-label="More actions"
-                    >
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    {isNativeApp() && (
-                      <>
-                        <DropdownMenuItem
-                          onSelect={() =>
-                            openInEditor.mutate({
-                              worktreePath,
-                              editor: preferences?.editor,
-                            })
-                          }
-                        >
-                          <Code className="h-4 w-4" />
-                          {getOpenInDefaultLabel(
-                            'editor',
-                            preferences?.editor,
-                            preferences?.terminal
-                          )}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={() =>
-                            openInTerminal.mutate({
-                              worktreePath,
-                              terminal: preferences?.terminal,
-                            })
-                          }
-                        >
-                          <Terminal className="h-4 w-4" />
-                          {getOpenInDefaultLabel(
-                            'terminal',
-                            preferences?.editor,
-                            preferences?.terminal
-                          )}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={() => openInFinder.mutate(worktreePath)}
-                        >
-                          <FolderOpen className="h-4 w-4" />
-                          Finder
-                        </DropdownMenuItem>
-                      </>
-                    )}
-                    {worktree?.branch && (
-                      <DropdownMenuItem
-                        onSelect={() =>
-                          openOnGitHub.mutate({
-                            repoPath: worktreePath,
-                            branch: worktree.branch,
-                          })
-                        }
-                      >
-                        <Github className="h-4 w-4" />
-                        GitHub
-                      </DropdownMenuItem>
-                    )}
-                    {(isNativeApp() || worktree?.branch) && (
-                      <DropdownMenuSeparator />
-                    )}
-                    <DropdownMenuItem
-                      onSelect={() =>
-                        useTerminalStore
-                          .getState()
-                          .toggleModalTerminal(worktreeId)
-                      }
-                    >
-                      <Terminal className="h-4 w-4" />
-                      Terminal
-                    </DropdownMenuItem>
-                    {runScripts.length === 1 && (
-                      <DropdownMenuItem onSelect={handleRun}>
-                        <Play
-                          className={`h-4 w-4 ${hasFailedTerminal ? 'text-red-500' : hasRunningTerminal ? 'text-amber-500 dark:text-yellow-400 animate-icon-glow' : ''}`}
-                        />
-                        Run
-                      </DropdownMenuItem>
-                    )}
-                    {runScripts.length > 1 && (
-                      <DropdownMenuSub>
-                        <DropdownMenuSubTrigger>
-                          <Play
-                            className={`h-4 w-4 ${hasFailedTerminal ? 'text-red-500' : hasRunningTerminal ? 'text-amber-500 dark:text-yellow-400 animate-icon-glow' : ''}`}
-                          />
-                          Run
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent>
-                          {runScripts.map((cmd, i) => (
-                            <DropdownMenuItem
-                              key={i}
-                              onSelect={() => handleRunCommand(cmd)}
-                              className="font-mono text-xs"
-                            >
-                              {cmd}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
-                    )}
-                    {currentResumeCommand && (
-                      <DropdownMenuItem
-                        onSelect={() => {
-                          void copyToClipboard(currentResumeCommand)
-                            .then(() => toast.success('Resume command copied'))
-                            .catch(() =>
-                              toast.error('Failed to copy resume command')
-                            )
-                        }}
-                      >
-                        <Terminal className="h-4 w-4" />
-                        Copy Resume Command
-                      </DropdownMenuItem>
-                    )}
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      disabled={!hasRecap}
-                      onSelect={() =>
-                        window.dispatchEvent(new CustomEvent('open-recap'))
-                      }
-                    >
-                      <Sparkles className="h-4 w-4" />
-                      Recap
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      disabled={!hasPlan}
-                      onSelect={() =>
-                        window.dispatchEvent(new CustomEvent('open-plan'))
-                      }
-                    >
-                      <FileText className="h-4 w-4" />
-                      Plan
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
                 <ModalCloseButton onClick={handleClose} />
               </div>
             </div>

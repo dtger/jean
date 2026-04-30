@@ -4,7 +4,6 @@ import {
   AlertCircle,
   CircleDot,
   Code,
-  FileJson,
   FolderOpen,
   GitBranch,
   GitPullRequestArrow,
@@ -98,7 +97,6 @@ export function WorktreeDropdownMenu({
     handleOpenInEditor,
     handleArchiveOrClose,
     handleDelete,
-    handleOpenJeanConfig,
     handleGenerateRecap,
   } = useWorktreeMenuActions({ worktree, projectId })
   const authData = queryClient.getQueryData<GhAuthStatus>(ghCliQueryKeys.auth())
@@ -216,11 +214,6 @@ export function WorktreeDropdownMenu({
               </DropdownMenuSubContent>
             </DropdownMenuSub>
           )}
-
-          <DropdownMenuItem onClick={handleOpenJeanConfig}>
-            <FileJson className="mr-2 h-4 w-4" />
-            Edit jean.json
-          </DropdownMenuItem>
 
           <DropdownMenuItem
             onClick={() =>
