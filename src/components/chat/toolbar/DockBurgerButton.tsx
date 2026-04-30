@@ -132,7 +132,7 @@ export function DockBurgerButton({
         ...chatQueryKeys.sessions(worktreeId),
         'with-counts',
       ])
-    const session = cached?.sessions.find(s => s.id === sessionId)
+    const session = cached?.sessions?.find(s => s.id === sessionId)
     return session ? getResumeCommand(session) : null
   }, [queryClient])
 
