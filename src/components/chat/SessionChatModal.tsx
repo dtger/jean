@@ -10,19 +10,16 @@ import {
 import {
   Archive,
   ChevronDown,
-  Code,
   Eye,
   EyeOff,
   FileText,
-  FolderOpen,
   GitBranchPlus,
   GitPullRequestArrow,
-  Github,
-  MoreHorizontal,
   Pencil,
   Sparkles,
   Tag,
   Terminal,
+  Globe,
   Play,
   Plus,
   Trash2,
@@ -45,6 +42,7 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import { CloseWorktreeDialog } from './CloseWorktreeDialog'
 import { useChatStore } from '@/store/chat-store'
 import { useTerminalStore } from '@/store/terminal-store'
+import { useBrowserStore } from '@/store/browser-store'
 import { useUIStore } from '@/store/ui-store'
 import {
   useSessions,
@@ -70,25 +68,15 @@ import { copyToClipboard } from '@/lib/clipboard'
 import { toast } from 'sonner'
 import { ChatWindow } from './ChatWindow'
 import { ModalTerminalDrawer } from './ModalTerminalDrawer'
+import { ModalBrowserDrawer } from '@/components/browser/ModalBrowserDrawer'
 import { OpenInButton } from '@/components/open-in/OpenInButton'
 import { DevToolsDropdown } from './DevToolsDropdown'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import {
-  useOpenWorktreeInEditor,
-  useOpenWorktreeInTerminal,
-  useOpenWorktreeInFinder,
-  useOpenBranchOnGitHub,
-} from '@/services/projects'
-import { getOpenInDefaultLabel } from '@/types/preferences'
 import { DEFAULT_KEYBINDINGS, formatShortcutDisplay } from '@/types/keybindings'
 import {
   getResumeCommand,
@@ -253,6 +241,15 @@ export function SessionChatModal({
   const modalTerminalDockMode = useTerminalStore(
     state => state.modalTerminalDockMode
   )
+  const hasBottomTerminal =
+    isModalTerminalOpen && modalTerminalDockMode === 'bottom'
+  const isBrowserModalOpen = useBrowserStore(
+    state => state.modalOpen[worktreeId] ?? false
+  )
+  const browserModalDockMode = useBrowserStore(state => state.modalDockMode)
+  const hasBottomBrowser =
+    isBrowserModalOpen && browserModalDockMode === 'bottom'
+  const hasBottomDock = hasBottomTerminal || hasBottomBrowser
   const hasRunningTerminal = useTerminalStore(state => {
     const terminals = state.terminals[worktreeId] ?? []
     return terminals.some(t => state.runningTerminals.has(t.id))
@@ -337,17 +334,6 @@ export function SessionChatModal({
     return () => cancelAnimationFrame(scrollId)
   }, [isOpen, currentSessionId, sessions.length, currentSessionStatus])
 
-  // Plan/recap indicators for tab bar buttons
-  const hasPlan =
-    (currentSessionId ? !!planFilePaths[currentSessionId] : false) ||
-    !!currentSession?.plan_file_path
-  const hasRecap =
-    (currentSessionId ? !!sessionDigests[currentSessionId] : false) ||
-    !!currentSession?.digest
-  const currentResumeCommand = currentSession
-    ? getResumeCommand(currentSession)
-    : null
-
   // Git status for header badges
   const { data: worktree } = useWorktree(worktreeId)
   const { data: projects } = useProjects()
@@ -374,12 +360,6 @@ export function SessionChatModal({
   const branchDiffRemoved =
     gitStatus?.branch_diff_removed ?? worktree?.cached_branch_diff_removed ?? 0
   const defaultBranch = project?.default_branch ?? 'main'
-
-  // Open-in actions for mobile overflow menu
-  const openInEditor = useOpenWorktreeInEditor()
-  const openInTerminal = useOpenWorktreeInTerminal()
-  const openInFinder = useOpenWorktreeInFinder()
-  const openOnGitHub = useOpenBranchOnGitHub()
 
   const hasSetActiveRef = useRef<string | null>(null)
 
@@ -756,12 +736,15 @@ export function SessionChatModal({
         const terminalAncestor = target?.closest?.(
           '[data-terminal-root="true"]'
         )
-        const { planDialogOpen, gitDiffModalOpen } = useUIStore.getState()
+        const { planDialogOpen, gitDiffModalOpen, contextViewerOpen } =
+          useUIStore.getState()
 
         // Don't close if PlanDialog is open — let it handle ESC
         if (planDialogOpen) return
         // Don't close if GitDiffModal is open — let it handle ESC
         if (gitDiffModalOpen) return
+        // Don't close if ContextViewerDialog is open — let it handle ESC
+        if (contextViewerOpen) return
         // Don't close if CloseWorktreeDialog is open — let it handle ESC
         if (closeConfirmOpen) return
         // Don't close if ESC originated inside a child dialog/sheet portal
@@ -786,7 +769,7 @@ export function SessionChatModal({
         className={cn(
           'absolute inset-0 z-10 flex min-w-0 overflow-hidden bg-background pt-[3px]',
           !isMobile && 'pb-2',
-          modalTerminalDockMode === 'bottom' ? 'flex-col' : 'flex-row'
+          hasBottomDock ? 'flex-col' : 'flex-row'
         )}
         style={
           isMobile
@@ -813,6 +796,7 @@ export function SessionChatModal({
             dockMode="left"
           />
         )}
+        <ModalBrowserDrawer worktreeId={worktreeId} dockMode="left" />
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <div className="shrink-0 border-b sm:text-left">
             <div
@@ -822,7 +806,7 @@ export function SessionChatModal({
               )}
             >
               <div className="flex items-center gap-2 min-w-0">
-                <h2 className="text-sm font-medium min-w-0 truncate">
+                <h2 className="text-sm font-medium min-w-0 flex-1 truncate">
                   {project && !isMobile && (
                     <span className="text-muted-foreground font-normal">
                       <button
@@ -839,9 +823,9 @@ export function SessionChatModal({
                 </h2>
                 {worktree?.base_branch &&
                   worktree.base_branch !== project?.default_branch && (
-                    <span className="inline-flex items-center gap-1 rounded border border-border/50 px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground">
+                    <span className="inline-flex shrink min-w-0 items-center gap-1 rounded border border-border/50 px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground">
                       <GitBranchPlus className="h-2.5 w-2.5" />
-                      <span className="max-w-40 truncate">
+                      <span className="max-w-16 sm:max-w-40 truncate">
                         {worktree.base_branch}
                       </span>
                       {stackedOnPR && (
@@ -930,6 +914,24 @@ export function SessionChatModal({
                       </kbd>
                     </TooltipContent>
                   </Tooltip>
+                  {isNativeApp() && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          aria-label="Toggle browser"
+                          onClick={() => {
+                            useBrowserStore.getState().toggleModal(worktreeId)
+                          }}
+                        >
+                          <Globe className="h-3 w-3" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Browser</TooltipContent>
+                    </Tooltip>
+                  )}
                   {runScripts.length === 1 && (
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -1010,149 +1012,6 @@ export function SessionChatModal({
                     </div>
                   )}
                 </div>
-                {/* Mobile: overflow menu */}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0 flex sm:hidden"
-                      aria-label="More actions"
-                    >
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    {isNativeApp() && (
-                      <>
-                        <DropdownMenuItem
-                          onSelect={() =>
-                            openInEditor.mutate({
-                              worktreePath,
-                              editor: preferences?.editor,
-                            })
-                          }
-                        >
-                          <Code className="h-4 w-4" />
-                          {getOpenInDefaultLabel(
-                            'editor',
-                            preferences?.editor,
-                            preferences?.terminal
-                          )}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={() =>
-                            openInTerminal.mutate({
-                              worktreePath,
-                              terminal: preferences?.terminal,
-                            })
-                          }
-                        >
-                          <Terminal className="h-4 w-4" />
-                          {getOpenInDefaultLabel(
-                            'terminal',
-                            preferences?.editor,
-                            preferences?.terminal
-                          )}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={() => openInFinder.mutate(worktreePath)}
-                        >
-                          <FolderOpen className="h-4 w-4" />
-                          Finder
-                        </DropdownMenuItem>
-                      </>
-                    )}
-                    {worktree?.branch && (
-                      <DropdownMenuItem
-                        onSelect={() =>
-                          openOnGitHub.mutate({
-                            repoPath: worktreePath,
-                            branch: worktree.branch,
-                          })
-                        }
-                      >
-                        <Github className="h-4 w-4" />
-                        GitHub
-                      </DropdownMenuItem>
-                    )}
-                    {(isNativeApp() || worktree?.branch) && (
-                      <DropdownMenuSeparator />
-                    )}
-                    <DropdownMenuItem
-                      onSelect={() =>
-                        useTerminalStore
-                          .getState()
-                          .toggleModalTerminal(worktreeId)
-                      }
-                    >
-                      <Terminal className="h-4 w-4" />
-                      Terminal
-                    </DropdownMenuItem>
-                    {runScripts.length === 1 && (
-                      <DropdownMenuItem onSelect={handleRun}>
-                        <Play
-                          className={`h-4 w-4 ${hasFailedTerminal ? 'text-red-500' : hasRunningTerminal ? 'text-amber-500 dark:text-yellow-400 animate-icon-glow' : ''}`}
-                        />
-                        Run
-                      </DropdownMenuItem>
-                    )}
-                    {runScripts.length > 1 && (
-                      <DropdownMenuSub>
-                        <DropdownMenuSubTrigger>
-                          <Play
-                            className={`h-4 w-4 ${hasFailedTerminal ? 'text-red-500' : hasRunningTerminal ? 'text-amber-500 dark:text-yellow-400 animate-icon-glow' : ''}`}
-                          />
-                          Run
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent>
-                          {runScripts.map((cmd, i) => (
-                            <DropdownMenuItem
-                              key={i}
-                              onSelect={() => handleRunCommand(cmd)}
-                              className="font-mono text-xs"
-                            >
-                              {cmd}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
-                    )}
-                    {currentResumeCommand && (
-                      <DropdownMenuItem
-                        onSelect={() => {
-                          void copyToClipboard(currentResumeCommand)
-                            .then(() => toast.success('Resume command copied'))
-                            .catch(() =>
-                              toast.error('Failed to copy resume command')
-                            )
-                        }}
-                      >
-                        <Terminal className="h-4 w-4" />
-                        Copy Resume Command
-                      </DropdownMenuItem>
-                    )}
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      disabled={!hasRecap}
-                      onSelect={() =>
-                        window.dispatchEvent(new CustomEvent('open-recap'))
-                      }
-                    >
-                      <Sparkles className="h-4 w-4" />
-                      Recap
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      disabled={!hasPlan}
-                      onSelect={() =>
-                        window.dispatchEvent(new CustomEvent('open-plan'))
-                      }
-                    >
-                      <FileText className="h-4 w-4" />
-                      Plan
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
                 <ModalCloseButton onClick={handleClose} />
               </div>
             </div>
@@ -1441,6 +1300,7 @@ export function SessionChatModal({
             dockMode="right"
           />
         )}
+        <ModalBrowserDrawer worktreeId={worktreeId} dockMode="right" />
         {isModalTerminalOpen && modalTerminalDockMode === 'bottom' && (
           <ModalTerminalDrawer
             worktreeId={worktreeId}
@@ -1448,6 +1308,10 @@ export function SessionChatModal({
             dockMode="bottom"
           />
         )}
+        {/* Browser bottom drawer sits at outer-flex bottom row alongside
+            terminal-bottom; outer flex flips to flex-col when either is
+            docked at bottom (see hasBottomDock). */}
+        <ModalBrowserDrawer worktreeId={worktreeId} dockMode="bottom" />
         {modalTerminalDockMode === 'floating' && (
           <ModalTerminalDrawer
             worktreeId={worktreeId}
@@ -1455,6 +1319,7 @@ export function SessionChatModal({
             dockMode="floating"
           />
         )}
+        <ModalBrowserDrawer worktreeId={worktreeId} dockMode="floating" />
       </div>
       <LabelModal
         isOpen={labelModalOpen}

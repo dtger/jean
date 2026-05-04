@@ -89,6 +89,8 @@ interface UIState {
   gitDiffSelectedFiles: Set<string>
   /** Whether a plan dialog is open (blocks canvas approve keybindings) */
   planDialogOpen: boolean
+  /** Whether the context viewer dialog is open (blocks SessionChatModal ESC close) */
+  contextViewerOpen: boolean
   /** Whether the feature tour dialog is open */
   featureTourOpen: boolean
   /** Whether UI state has been restored from persisted storage */
@@ -167,6 +169,7 @@ interface UIState {
   toggleGitDiffSelectedFile: (filePath: string) => void
   clearGitDiffSelectedFiles: () => void
   setPlanDialogOpen: (open: boolean) => void
+  setContextViewerOpen: (open: boolean) => void
   setFeatureTourOpen: (open: boolean) => void
   setUIStateInitialized: (initialized: boolean) => void
   setPendingUpdateVersion: (version: string | null) => void
@@ -234,6 +237,7 @@ export const useUIStore = create<UIState>()(
       gitDiffModalOpen: false,
       gitDiffSelectedFiles: new Set<string>(),
       planDialogOpen: false,
+      contextViewerOpen: false,
       featureTourOpen: false,
       uiStateInitialized: false,
       pendingUpdateVersion: null,
@@ -695,6 +699,9 @@ export const useUIStore = create<UIState>()(
 
       setPlanDialogOpen: (open: boolean) =>
         set({ planDialogOpen: open }, undefined, 'setPlanDialogOpen'),
+
+      setContextViewerOpen: (open: boolean) =>
+        set({ contextViewerOpen: open }, undefined, 'setContextViewerOpen'),
 
       setFeatureTourOpen: (open: boolean) =>
         set({ featureTourOpen: open }, undefined, 'setFeatureTourOpen'),

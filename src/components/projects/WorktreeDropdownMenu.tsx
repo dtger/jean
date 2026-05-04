@@ -4,7 +4,6 @@ import {
   AlertCircle,
   CircleDot,
   Code,
-  FileJson,
   FolderOpen,
   GitBranch,
   GitPullRequestArrow,
@@ -98,7 +97,6 @@ export function WorktreeDropdownMenu({
     handleOpenInEditor,
     handleArchiveOrClose,
     handleDelete,
-    handleOpenJeanConfig,
     handleGenerateRecap,
   } = useWorktreeMenuActions({ worktree, projectId })
   const authData = queryClient.getQueryData<GhAuthStatus>(ghCliQueryKeys.auth())
@@ -129,7 +127,7 @@ export function WorktreeDropdownMenu({
     (alerts?.length ?? 0) +
     (advisories?.filter(a => a.state === 'draft' || a.state === 'triage')
       .length ?? 0)
-  const workflowRunCount = workflowRuns?.runs.length ?? 0
+  const workflowRunCount = workflowRuns?.runs?.length ?? 0
   const failedWorkflowCount = workflowRuns?.failedCount ?? 0
   const isMobile = useIsMobile()
   const hasDiff = uncommittedAdded > 0 || uncommittedRemoved > 0
@@ -216,11 +214,6 @@ export function WorktreeDropdownMenu({
               </DropdownMenuSubContent>
             </DropdownMenuSub>
           )}
-
-          <DropdownMenuItem onClick={handleOpenJeanConfig}>
-            <FileJson className="mr-2 h-4 w-4" />
-            Edit jean.json
-          </DropdownMenuItem>
 
           <DropdownMenuItem
             onClick={() =>

@@ -105,6 +105,7 @@ export default tseslint.config(
       '*.config.js',
       '*.config.ts',
       'vite.config.ts',
+      'vite.config.d.ts',
       'tailwind.config.js',
     ],
   }

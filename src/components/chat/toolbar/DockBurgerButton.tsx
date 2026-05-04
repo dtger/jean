@@ -2,16 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Archive,
   Command,
-  FileText,
   Github,
-  GitPullRequest,
   LayoutDashboard,
   Menu,
   Paperclip,
   Plug,
   Plus,
-  ShieldAlert,
-  Sparkles,
   Terminal,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
@@ -26,6 +22,11 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { invoke } from '@/lib/transport'
 import { useWsConnectionStatus } from '@/lib/transport'
@@ -35,6 +36,7 @@ import { copyToClipboard } from '@/lib/clipboard'
 import { useUIStore } from '@/store/ui-store'
 import { useChatStore } from '@/store/chat-store'
 import { useProjectsStore } from '@/store/projects-store'
+import { useTerminalStore } from '@/store/terminal-store'
 import { chatQueryKeys } from '@/services/chat'
 import { usePreferences } from '@/services/preferences'
 import { useWorktree, type GitHubRemote } from '@/services/projects'
@@ -127,7 +129,7 @@ export function DockBurgerButton({
         ...chatQueryKeys.sessions(worktreeId),
         'with-counts',
       ])
-    const session = cached?.sessions.find(s => s.id === sessionId)
+    const session = cached?.sessions?.find(s => s.id === sessionId)
     return session ? getResumeCommand(session) : null
   }, [queryClient])
 
@@ -212,15 +214,6 @@ export function DockBurgerButton({
       })
   }, [worktree?.branch, worktree?.path, selectedProjectId])
 
-  const handleOpenPR = useCallback(() => {
-    if (worktree?.pr_url) openExternal(worktree.pr_url)
-  }, [worktree?.pr_url])
-
-  const handleOpenSecurityAlert = useCallback(() => {
-    const url = worktree?.security_alert_url ?? worktree?.advisory_url
-    if (url) openExternal(url)
-  }, [worktree?.security_alert_url, worktree?.advisory_url])
-
   const githubShortcut = formatShortcutDisplay(
     (preferences?.keybindings?.open_github_dashboard ??
       DEFAULT_KEYBINDINGS.open_github_dashboard) as string
@@ -229,6 +222,10 @@ export function DockBurgerButton({
     (preferences?.keybindings?.open_quick_menu ??
       DEFAULT_KEYBINDINGS.open_quick_menu) as string
   )
+  const terminalShortcut = formatShortcutDisplay(
+    (preferences?.keybindings?.toggle_terminal ??
+      DEFAULT_KEYBINDINGS.toggle_terminal) as string
+  )
 
   const isWebAccess = !isNativeApp()
   const connected = useWsConnectionStatus()
@@ -236,25 +233,63 @@ export function DockBurgerButton({
 
   return (
     <DropdownMenu open={menuOpen} onOpenChange={handleOpenChange}>
-      <DropdownMenuTrigger asChild>
-        <button
-          ref={triggerRef}
-          type="button"
-          title={`Menu (${menuShortcut})`}
-          className={cn(
-            'flex h-8 items-center gap-1 px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground',
-            className
-          )}
-        >
-          <Menu className="h-3.5 w-3.5" />
-        </button>
-      </DropdownMenuTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <button
+              ref={triggerRef}
+              type="button"
+              aria-label={`Menu (${menuShortcut})`}
+              className={cn(
+                'flex h-8 items-center gap-1 px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground',
+                className
+              )}
+            >
+              <Menu className="h-3.5 w-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Menu ({menuShortcut})</TooltipContent>
+      </Tooltip>
       <DropdownMenuContent
         side="top"
         align="start"
         className="min-w-[240px]"
         onEscapeKeyDown={e => e.stopPropagation()}
       >
+        <DropdownMenuItem
+          onClick={() =>
+            useProjectsStore.getState().setAddProjectDialogOpen(true)
+          }
+        >
+          <Plus className="mr-2 h-4 w-4" />
+          Add Project
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() =>
+            window.dispatchEvent(new CustomEvent('command:open-archived-modal'))
+          }
+        >
+          <Archive className="mr-2 h-4 w-4" />
+          Archives
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => useUIStore.getState().setCommandPaletteOpen(true)}
+        >
+          <Command className="mr-2 h-4 w-4" />
+          Command Palette
+          <DropdownMenuShortcut>⌘K</DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => useUIStore.getState().setGitHubDashboardOpen(true)}
+        >
+          <LayoutDashboard className="mr-2 h-4 w-4" />
+          GitHub Dashboard
+          <DropdownMenuShortcut>{githubShortcut}</DropdownMenuShortcut>
+        </DropdownMenuItem>
+
+        <DropdownMenuSeparator />
+
         {onAttach && (
           <DropdownMenuItem onClick={onAttach}>
             <Paperclip className="mr-2 h-4 w-4" />
@@ -278,84 +313,29 @@ export function DockBurgerButton({
             <DropdownMenuShortcut>{activeMcpCount}</DropdownMenuShortcut>
           )}
         </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onClick={() =>
-            useProjectsStore.getState().setAddProjectDialogOpen(true)
-          }
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          Add Project
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() => useUIStore.getState().setGitHubDashboardOpen(true)}
-        >
-          <LayoutDashboard className="mr-2 h-4 w-4" />
-          GitHub Dashboard
-          <DropdownMenuShortcut>{githubShortcut}</DropdownMenuShortcut>
-        </DropdownMenuItem>
-        {resumeCommand && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleCopyResumeCommand}>
-              <Terminal className="mr-2 h-4 w-4" />
-              Copy Resume Command
-            </DropdownMenuItem>
-          </>
-        )}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onClick={() => window.dispatchEvent(new CustomEvent('open-recap'))}
-        >
-          <Sparkles className="mr-2 h-4 w-4" />
-          View Recap
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() => window.dispatchEvent(new CustomEvent('open-plan'))}
-        >
-          <FileText className="mr-2 h-4 w-4" />
-          View Plan
-        </DropdownMenuItem>
         {isMobile && currentWorktreeId && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleOpenGitHub}>
-              <Github className="mr-2 h-4 w-4" />
-              GitHub
-            </DropdownMenuItem>
-            {worktree?.pr_url && (
-              <DropdownMenuItem onClick={handleOpenPR}>
-                <GitPullRequest className="mr-2 h-4 w-4" />
-                PR #{worktree.pr_number}
-              </DropdownMenuItem>
-            )}
-            {(worktree?.security_alert_url || worktree?.advisory_url) && (
-              <DropdownMenuItem onClick={handleOpenSecurityAlert}>
-                <ShieldAlert className="mr-2 h-4 w-4" />
-                {worktree?.security_alert_number
-                  ? `Alert #${worktree.security_alert_number}`
-                  : worktree?.advisory_ghsa_id}
-              </DropdownMenuItem>
-            )}
-          </>
+          <DropdownMenuItem onClick={handleOpenGitHub}>
+            <Github className="mr-2 h-4 w-4" />
+            GitHub
+          </DropdownMenuItem>
         )}
-
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onClick={() => useUIStore.getState().setCommandPaletteOpen(true)}
-        >
-          <Command className="mr-2 h-4 w-4" />
-          Command Palette
-          <DropdownMenuShortcut>⌘K</DropdownMenuShortcut>
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onClick={() =>
-            window.dispatchEvent(new CustomEvent('command:open-archived-modal'))
-          }
-        >
-          <Archive className="mr-2 h-4 w-4" />
-          Archives
-        </DropdownMenuItem>
+        {currentWorktreeId && (
+          <DropdownMenuItem
+            onClick={() =>
+              useTerminalStore.getState().toggleModalTerminal(currentWorktreeId)
+            }
+          >
+            <Terminal className="mr-2 h-4 w-4" />
+            Terminal
+            <DropdownMenuShortcut>{terminalShortcut}</DropdownMenuShortcut>
+          </DropdownMenuItem>
+        )}
+        {resumeCommand && (
+          <DropdownMenuItem onClick={handleCopyResumeCommand}>
+            <Terminal className="mr-2 h-4 w-4" />
+            Copy Resume Command
+          </DropdownMenuItem>
+        )}
 
         {!isMobile && showCodexUsage && (
           <>
@@ -377,11 +357,17 @@ export function DockBurgerButton({
         {showConnectionIndicator && (
           <>
             <DropdownMenuSeparator />
-            <div className="flex items-center gap-2 px-2 py-1.5 text-[11px] text-muted-foreground">
-              <span
-                className={`inline-block size-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}
-              />
-              {connected ? 'Connected to server' : 'Reconnecting to server'}
+            <div
+              className="relative flex select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-foreground"
+              role="status"
+              aria-live="polite"
+            >
+              <span className="inline-flex size-4 shrink-0 items-center justify-center">
+                <span
+                  className={`inline-block size-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}
+                />
+              </span>
+              {connected ? 'Connected' : 'Reconnecting'}
             </div>
           </>
         )}
