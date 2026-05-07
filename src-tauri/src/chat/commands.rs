@@ -2008,6 +2008,7 @@ pub async fn send_chat_message(
 \n\
 - Make the plan extremely concise. Sacrifice grammar for the sake of concision.\n\
 - At the end of each plan, give me a list of unresolved questions to answer, if any.\n\
+- In planning mode, present plans using the backend's native plan tool/UI call when available (Claude ExitPlanMode, Codex update_plan/CodexPlan, Cursor/OpenCode equivalent), not plain text only.\n\
 \n\
 ## Not Plan Mode\n\
 \n\
@@ -2023,7 +2024,8 @@ pub async fn send_chat_message(
                             "You are in PLANNING MODE (read-only sandbox). Create a detailed implementation plan. \
                              Do NOT attempt to make any file changes — you are running in a read-only sandbox and writes will fail. \
                              Describe exactly what changes you WOULD make: which files to create/modify, \
-                             what code to write, and in what order. End with any unresolved questions."
+                             what code to write, and in what order. Use the native plan tool/UI call to show the plan when available. \
+                             End with any unresolved questions."
                                 .to_string(),
                         );
                     }
@@ -3346,8 +3348,7 @@ pub fn codex_goal_set(
         return Err("Goal objective cannot be empty".to_string());
     }
 
-    let thread_id =
-        codex_thread_id_for_session(&app, &worktree_id, &worktree_path, &session_id)?;
+    let thread_id = codex_thread_id_for_session(&app, &worktree_id, &worktree_path, &session_id)?;
 
     if let Some(tid) = thread_id {
         super::codex_server::ensure_running(&app)?;
@@ -3373,8 +3374,7 @@ pub fn codex_goal_get(
     worktree_path: String,
     session_id: String,
 ) -> Result<Option<String>, String> {
-    let thread_id =
-        codex_thread_id_for_session(&app, &worktree_id, &worktree_path, &session_id)?;
+    let thread_id = codex_thread_id_for_session(&app, &worktree_id, &worktree_path, &session_id)?;
 
     let goal = if let Some(tid) = thread_id {
         super::codex_server::ensure_running(&app)?;
@@ -3412,8 +3412,7 @@ pub fn codex_goal_clear(
     worktree_path: String,
     session_id: String,
 ) -> Result<(), String> {
-    let thread_id =
-        codex_thread_id_for_session(&app, &worktree_id, &worktree_path, &session_id)?;
+    let thread_id = codex_thread_id_for_session(&app, &worktree_id, &worktree_path, &session_id)?;
 
     if let Some(tid) = thread_id {
         super::codex_server::ensure_running(&app)?;
@@ -3451,11 +3450,10 @@ fn codex_thread_id_for_session(
 /// `thread/goal/set` after a fresh thread starts. Called once we have a
 /// thread ID for a session that already has a buffered objective.
 pub fn flush_pending_codex_goal(app: &AppHandle, session_id: &str, thread_id: &str) {
-    let goal = super::storage::with_existing_metadata_mut(app, session_id, |meta| {
-        meta.codex_goal.clone()
-    })
-    .ok()
-    .flatten();
+    let goal =
+        super::storage::with_existing_metadata_mut(app, session_id, |meta| meta.codex_goal.clone())
+            .ok()
+            .flatten();
     let Some(objective) = goal else { return };
     let params = serde_json::json!({ "threadId": thread_id, "goal": objective });
     if let Err(e) = super::codex_server::send_request("thread/goal/set", params) {
