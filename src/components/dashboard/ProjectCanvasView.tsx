@@ -743,6 +743,18 @@ export function ProjectCanvasView({ projectId }: ProjectCanvasViewProps) {
   const sessionsByWorktreeIdRef = useRef(sessionsByWorktreeId)
   sessionsByWorktreeIdRef.current = sessionsByWorktreeId
 
+  // React to explicit auto-open requests immediately. The effect below still
+  // reads the latest store state imperatively, but this primitive signal makes
+  // queued requests re-run it without waiting for session query refetches.
+  const autoOpenSessionSignal = useUIStore(state => {
+    const worktreeIds = [...state.autoOpenSessionWorktreeIds].sort().join(',')
+    const sessionIds = Object.entries(state.pendingAutoOpenSessionIds)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([worktreeId, sessionId]) => `${worktreeId}:${sessionId}`)
+      .join(',')
+    return `${worktreeIds}|${sessionIds}`
+  })
+
   // Use shared store state hook
   const storeState = useCanvasStoreState()
   const queryClient = useQueryClient()
@@ -1249,29 +1261,61 @@ export function ProjectCanvasView({ projectId }: ProjectCanvasViewProps) {
     }
   }, [flatCards, selectedIndex, searchQuery])
 
-  // Auto-open session modal for newly created worktrees
+  // Auto-open session modal for newly created worktrees / unread-session clicks
   useEffect(() => {
     const currentSessions = sessionsByWorktreeIdRef.current
-    for (const [worktreeId, sessionData] of currentSessions) {
-      if (!sessionData.sessions.length) continue
+    const queuedWorktreeIds = [
+      ...useUIStore.getState().autoOpenSessionWorktreeIds,
+    ]
+    for (const worktreeId of queuedWorktreeIds) {
+      const worktree = readyWorktrees.find(w => w.id === worktreeId)
+      if (!worktree) continue
+
+      const targetSessionId =
+        useUIStore.getState().pendingAutoOpenSessionIds[worktreeId]
+
+      // Explicit session opens (e.g. clicking a finished unread session) should
+      // not wait for dashboard session-count queries. SessionChatModal and
+      // ChatWindow fetch their own data and can render from the active ID.
+      if (targetSessionId) {
+        const autoOpen = useUIStore
+          .getState()
+          .consumeAutoOpenSession(worktreeId)
+        if (!autoOpen.shouldOpen) continue
+
+        const sessionId = autoOpen.sessionId ?? targetSessionId
+
+        const exactCardIndex = flatCards.findIndex(
+          fc =>
+            fc.worktreeId === worktreeId && fc.card?.session.id === sessionId
+        )
+        const worktreeCardIndex =
+          exactCardIndex !== -1
+            ? exactCardIndex
+            : flatCards.findIndex(
+                fc => !fc.isPending && fc.card && fc.worktreeId === worktreeId
+              )
+        if (worktreeCardIndex !== -1) {
+          setSelectedIndex(worktreeCardIndex)
+          highlightedCardRef.current = {
+            worktreeId,
+            sessionId,
+          }
+        }
+
+        useChatStore.getState().setActiveSession(worktreeId, sessionId)
+        openWorktreeModal(worktreeId, worktree.path, 'auto-open-session')
+        break
+      }
+
+      const sessionData = currentSessions.get(worktreeId)
+      if (!sessionData?.sessions.length) continue
 
       const autoOpen = useUIStore.getState().consumeAutoOpenSession(worktreeId)
       if (!autoOpen.shouldOpen) continue
 
-      const worktree = readyWorktrees.find(w => w.id === worktreeId)
       // Use specific session if provided, otherwise fall back to first session
-      const targetSessionId = autoOpen.sessionId
-      const targetSession = targetSessionId
-        ? sessionData.sessions.find(s => s.id === targetSessionId)
-        : sessionData.sessions[0]
-
-      // If requested session hasn't arrived in this query yet, re-queue and retry later.
-      if (targetSessionId && !targetSession) {
-        useUIStore
-          .getState()
-          .markWorktreeForAutoOpenSession(worktreeId, targetSessionId)
-        continue
-      }
+      const targetSession = sessionData.sessions[0]
 
       if (worktree && targetSession) {
         // Find the index in flatCards for keyboard selection
@@ -1296,7 +1340,13 @@ export function ProjectCanvasView({ projectId }: ProjectCanvasViewProps) {
     }
     // sessionsFingerprint tracks when session data changes (stable string, not Map reference)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionsFingerprint, readyWorktrees, flatCards, openWorktreeModal])
+  }, [
+    autoOpenSessionSignal,
+    sessionsFingerprint,
+    readyWorktrees,
+    flatCards,
+    openWorktreeModal,
+  ])
 
   // Auto-select session when dashboard opens (visual selection only, no modal unless restore_last_session is on)
   // Prefers last opened per project, then persisted active session per worktree, falls back to first card

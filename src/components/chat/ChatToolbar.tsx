@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { useUIStore } from '@/store/ui-store'
 import {
@@ -10,7 +11,7 @@ import {
 import { useChatStore } from '@/store/chat-store'
 import { useRemotePicker } from '@/hooks/useRemotePicker'
 import { useAllBackendsMcpHealth } from '@/services/mcp'
-import type { ClaudeModel } from '@/types/preferences'
+import { getModelFastInfo, type ClaudeModel } from '@/types/preferences'
 import {
   getSupportedExecutionModes,
   type EffortLevel,
@@ -178,9 +179,15 @@ export const ChatToolbar = memo(function ChatToolbar({
           badgeClassName="text-[9px] leading-3"
         />
         <span className="truncate">· {selectedModelLabel}</span>
+        {getModelFastInfo(selectedBackend, selectedModel).isFast && (
+          <Zap
+            className="h-3 w-3 shrink-0 fill-current text-yellow-500"
+            aria-label="Fast mode"
+          />
+        )}
       </>
     ),
-    [selectedBackend, selectedModelLabel]
+    [selectedBackend, selectedModel, selectedModelLabel]
   )
 
   const backendModelLabelText = useMemo(

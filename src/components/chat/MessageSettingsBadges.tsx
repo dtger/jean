@@ -1,10 +1,9 @@
 import { memo } from 'react'
 import {
-  MODEL_OPTIONS,
   THINKING_LEVEL_OPTIONS,
   EFFORT_LEVEL_OPTIONS,
 } from '@/components/chat/toolbar/toolbar-options'
-import { formatOpencodeModelLabel } from '@/components/chat/toolbar/toolbar-utils'
+import { getMessageModelLabel } from '@/components/chat/message-settings-labels'
 import type { EffortLevel, ExecutionMode, ThinkingLevel } from '@/types/chat'
 
 interface MessageSettingsBadgesProps {
@@ -24,9 +23,7 @@ export const MessageSettingsBadges = memo(function MessageSettingsBadges({
 }: MessageSettingsBadgesProps) {
   if (!model) return null
 
-  const modelLabel =
-    MODEL_OPTIONS.find(o => o.value === model)?.label ??
-    (model.includes('/') ? formatOpencodeModelLabel(model) : model)
+  const modelLabel = getMessageModelLabel(model)
 
   const effortLabel = effortLevel
     ? (EFFORT_LEVEL_OPTIONS.find(o => o.value === effortLevel)?.label ??

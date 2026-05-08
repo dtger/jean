@@ -146,7 +146,7 @@ export function useGitOperations({
         override?.model ??
         preferences?.magic_prompt_models?.resolve_conflicts_model ??
         (backend === 'codex'
-          ? (preferences?.selected_codex_model ?? 'gpt-5.4')
+          ? (preferences?.selected_codex_model ?? 'gpt-5.5')
           : backend === 'opencode'
             ? (preferences?.selected_opencode_model ?? 'opencode/gpt-5.3-codex')
             : backend === 'cursor'

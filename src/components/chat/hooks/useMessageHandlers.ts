@@ -220,7 +220,7 @@ function getDefaultModelForBackend(
   preferences: AppPreferences | undefined
 ): string {
   if (backend === 'codex') {
-    return preferences?.selected_codex_model ?? 'gpt-5.4'
+    return preferences?.selected_codex_model ?? 'gpt-5.5'
   }
   if (backend === 'opencode') {
     return preferences?.selected_opencode_model ?? 'opencode/gpt-5.3-codex'
@@ -228,7 +228,7 @@ function getDefaultModelForBackend(
   if (backend === 'cursor') {
     return preferences?.selected_cursor_model ?? 'cursor/auto'
   }
-  return preferences?.selected_model ?? 'claude-opus-4-7'
+  return preferences?.selected_model ?? 'claude-opus-4-7[1m]'
 }
 
 /**

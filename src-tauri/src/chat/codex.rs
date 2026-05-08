@@ -401,10 +401,12 @@ fn emit_codex_plan_tool_call(
 // App-server param builders
 // =============================================================================
 
-/// Split "gpt-5.4-fast" → ("gpt-5.4", true). Only gpt-5.4-fast is recognised;
-/// older models that happened to end in `-fast` are left unchanged.
-fn split_fast_model(model: &str) -> (&str, bool) {
+/// Split "gpt-5.5-fast" → ("gpt-5.5", true). Fast tier supported on
+/// gpt-5.5 and gpt-5.4 family; older models that happened to end in
+/// `-fast` are left unchanged.
+pub(crate) fn split_fast_model(model: &str) -> (&str, bool) {
     match model {
+        "gpt-5.5-fast" => ("gpt-5.5", true),
         "gpt-5.4-fast" => ("gpt-5.4", true),
         "gpt-5.4-mini-fast" => ("gpt-5.4-mini", true),
         other => (other.strip_suffix("-fast").unwrap_or(other), false),
@@ -3482,6 +3484,26 @@ mod tests {
         );
         assert_eq!(params["model"], "gpt-5.4");
         assert_eq!(params["serviceTier"], "fast");
+    }
+
+    #[test]
+    fn gpt_5_5_fast_enables_fast_service_tier() {
+        let params = build_thread_start_params(
+            std::path::Path::new("/tmp"),
+            Some("gpt-5.5-fast"),
+            Some("plan"),
+            false,
+            None,
+            false,
+            None,
+        );
+        assert_eq!(params["model"], "gpt-5.5");
+        assert_eq!(params["serviceTier"], "fast");
+    }
+
+    #[test]
+    fn split_fast_model_recognises_gpt_5_5_fast() {
+        assert_eq!(split_fast_model("gpt-5.5-fast"), ("gpt-5.5", true));
     }
 
     #[test]

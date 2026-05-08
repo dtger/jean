@@ -115,6 +115,10 @@ import { PlanDialog } from './PlanDialog'
 import { StreamingMessage } from './StreamingMessage'
 import { CompactStreamingTicker } from './CompactStreamingTicker'
 import { CompactMessageList } from './CompactMessageList'
+import {
+  getCurrentPromptWindow,
+  remapIndexForWindow,
+} from './compact-history-window'
 import { CodexGoalBanner } from './CodexGoalBanner'
 import { StreamingStatusBar } from './StreamingStatusBar'
 import { ChatErrorFallback } from './ChatErrorFallback'
@@ -127,10 +131,9 @@ import {
 } from './VirtualizedMessageList'
 import { RecentContexts } from './RecentContexts'
 import {
-  extractImagePaths,
-  extractTextFilePaths,
-  extractFileMentionPaths,
-  extractSkillPaths,
+  appendPromptMetadataToPlainText,
+  buildPromptAttachmentMetadata,
+  encodePromptAttachmentMetadata,
   stripAllMarkers,
 } from './message-content-utils'
 import { useUIStore } from '@/store/ui-store'
@@ -610,7 +613,7 @@ export function ChatWindow({
 
   // Per-session model selection, falls back to preferences default (backend-aware)
   const defaultModel: string = isCodexBackend
-    ? (preferences?.selected_codex_model ?? 'gpt-5.4')
+    ? (preferences?.selected_codex_model ?? 'gpt-5.5')
     : isOpencodeBackend
       ? (preferences?.selected_opencode_model ?? 'opencode/gpt-5.3-codex')
       : isCursorBackend
@@ -1118,7 +1121,7 @@ export function ChatWindow({
       const yoloModel =
         yoloModelRef.current ??
         (yoloBackend === 'codex'
-          ? (preferences?.selected_codex_model ?? 'gpt-5.4')
+          ? (preferences?.selected_codex_model ?? 'gpt-5.5')
           : yoloBackend === 'opencode'
             ? (preferences?.selected_opencode_model ?? 'opencode/gpt-5.3-codex')
             : yoloBackend === 'cursor'
@@ -1287,7 +1290,7 @@ export function ChatWindow({
       const buildModel =
         buildModelRef.current ??
         (buildBackend === 'codex'
-          ? (preferences?.selected_codex_model ?? 'gpt-5.4')
+          ? (preferences?.selected_codex_model ?? 'gpt-5.5')
           : buildBackend === 'opencode'
             ? (preferences?.selected_opencode_model ?? 'opencode/gpt-5.3-codex')
             : buildBackend === 'cursor'
@@ -1537,7 +1540,7 @@ export function ChatWindow({
       const modeModel =
         modeModelRef.current ??
         (modeBackend === 'codex'
-          ? (preferences?.selected_codex_model ?? 'gpt-5.4')
+          ? (preferences?.selected_codex_model ?? 'gpt-5.5')
           : modeBackend === 'opencode'
             ? (preferences?.selected_opencode_model ?? 'opencode/gpt-5.3-codex')
             : modeBackend === 'cursor'
@@ -2041,42 +2044,33 @@ export function ChatWindow({
     // Extract clean text (without attachment markers)
     const cleanText = stripAllMarkers(message.content)
 
-    // Extract attachment paths from the raw message content
-    const imagePaths = extractImagePaths(message.content)
-    const textFilePaths = extractTextFilePaths(message.content)
-    const fileMentionPaths = extractFileMentionPaths(message.content)
-    const skillPaths = extractSkillPaths(message.content)
-
-    // Build metadata for skill names
-    const skills = skillPaths.map(path => {
+    const metadata = buildPromptAttachmentMetadata(message.content, path => {
       const parts = normalizePath(path).split('/')
       const skillsIdx = parts.findIndex(p => p === 'skills')
-      const name =
-        skillsIdx >= 0 && parts[skillsIdx + 1]
-          ? (parts[skillsIdx + 1] ?? getFilename(path))
-          : getFilename(path)
-      return { name, path }
+      return skillsIdx >= 0 && parts[skillsIdx + 1]
+        ? (parts[skillsIdx + 1] ?? getFilename(path))
+        : getFilename(path)
     })
+    const encodedMetadata = encodePromptAttachmentMetadata(metadata)
+    const fallbackText = appendPromptMetadataToPlainText(cleanText, metadata)
 
-    // Build JSON metadata for attachments
-    const metadata = JSON.stringify({
-      images: imagePaths,
-      textFiles: textFilePaths,
-      files: fileMentionPaths,
-      skills,
-    })
-
-    // Write to clipboard: plain text + HTML with embedded metadata
-    // The HTML contains a hidden span with JSON so ChatInput can detect it on paste
-    const htmlContent = `<span data-jean-prompt="${encodeURIComponent(metadata)}">${cleanText.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>`
+    // Write to clipboard: plain text + HTML with embedded metadata.
+    // The fallback plain text includes a trailing comment sentinel so HTTP web
+    // access (where rich clipboard APIs may be unavailable) preserves
+    // attachments when pasted back into Jean.
+    const escapedCleanText = cleanText
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+    const htmlContent = `<span data-jean-prompt="${encodedMetadata}">${escapedCleanText}</span>`
 
     try {
-      await copyHtmlToClipboard(htmlContent, cleanText)
+      await copyHtmlToClipboard(htmlContent, cleanText, fallbackText)
       toast.success('Prompt copied')
     } catch {
-      // Fallback to plain text
-      await copyToClipboard(cleanText)
-      toast.success('Text copied (without attachments)')
+      // Fallback to plain text with metadata so attachments still round-trip.
+      await copyToClipboard(fallbackText)
+      toast.success('Prompt copied')
     }
   }, [])
 
@@ -2243,6 +2237,31 @@ export function ChatWindow({
     ]
   )
 
+  const compactHistoryWindow = useMemo(
+    () => getCurrentPromptWindow(messages),
+    [messages]
+  )
+  const compactScopeKey = `${deferredSessionId ?? 'no-session'}:${
+    messages[compactHistoryWindow.startIndex]?.id ?? 'empty'
+  }`
+  const [expandedCompactScopeKey, setExpandedCompactScopeKey] = useState<
+    string | null
+  >(null)
+  const isCompactHistoryExpanded = expandedCompactScopeKey === compactScopeKey
+  const compactMessages = useMemo(
+    () =>
+      isCompactHistoryExpanded
+        ? messages
+        : messages.slice(compactHistoryWindow.startIndex),
+    [isCompactHistoryExpanded, messages, compactHistoryWindow.startIndex]
+  )
+  const compactLastPlanMessageIndex = isCompactHistoryExpanded
+    ? lastPlanMessageIndex
+    : remapIndexForWindow(lastPlanMessageIndex, compactHistoryWindow.startIndex)
+  const handleShowHiddenCompactPrompts = useCallback(() => {
+    setExpandedCompactScopeKey(compactScopeKey)
+  }, [compactScopeKey])
+
   // Virtualizer for message list - always use virtualization for consistent performance
   // Even small conversations benefit from virtualization when messages have heavy content
   // Note: MainWindowContent handles the case when no worktree is selected
@@ -2389,10 +2408,12 @@ export function ChatWindow({
                                 {preferences?.compact_chat_view_enabled ? (
                                   <CompactMessageList
                                     ref={virtualizedListRef}
-                                    messages={messages}
+                                    messages={compactMessages}
                                     scrollContainerRef={scrollViewportRef}
-                                    totalMessages={messages.length}
-                                    lastPlanMessageIndex={lastPlanMessageIndex}
+                                    totalMessages={compactMessages.length}
+                                    lastPlanMessageIndex={
+                                      compactLastPlanMessageIndex
+                                    }
                                     sessionId={deferredSessionId ?? ''}
                                     worktreePath={activeWorktreePath ?? ''}
                                     approveShortcut={approveShortcut}
@@ -2451,6 +2472,14 @@ export function ChatWindow({
                                     isLoadingOlder={loadOlderMessages.isPending}
                                     onLoadOlderRuns={handleLoadOlderRuns}
                                     loadedRunStartIndex={loadedRunStartIndex}
+                                    hiddenPromptCount={
+                                      isCompactHistoryExpanded
+                                        ? 0
+                                        : compactHistoryWindow.hiddenPromptCount
+                                    }
+                                    onShowHiddenPrompts={
+                                      handleShowHiddenCompactPrompts
+                                    }
                                   />
                                 ) : (
                                   <VirtualizedMessageList
