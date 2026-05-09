@@ -656,7 +656,7 @@ export function MainWindow() {
         offset={toasterOffset}
         mobileOffset={toasterOffset}
         expand={true}
-        closeButton
+        swipeDirections={['left', 'right', 'top', 'bottom']}
         style={{ '--width': '400px' } as CSSProperties}
         toastOptions={{
           classNames: {

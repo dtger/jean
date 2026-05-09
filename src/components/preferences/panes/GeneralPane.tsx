@@ -1986,8 +1986,15 @@ export const GeneralPane: React.FC = () => {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="default">Default effort</SelectItem>
-                    {effortLevelOptions.map(option => (
+                    <SelectItem value="default">
+                      {effectiveBuildBackend === 'codex'
+                        ? 'Default reasoning'
+                        : 'Default effort'}
+                    </SelectItem>
+                    {(effectiveBuildBackend === 'codex'
+                      ? codexReasoningOptions
+                      : effortLevelOptions
+                    ).map(option => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}
                       </SelectItem>
@@ -2217,8 +2224,15 @@ export const GeneralPane: React.FC = () => {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="default">Default effort</SelectItem>
-                    {effortLevelOptions.map(option => (
+                    <SelectItem value="default">
+                      {effectiveYoloBackend === 'codex'
+                        ? 'Default reasoning'
+                        : 'Default effort'}
+                    </SelectItem>
+                    {(effectiveYoloBackend === 'codex'
+                      ? codexReasoningOptions
+                      : effortLevelOptions
+                    ).map(option => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}
                       </SelectItem>
@@ -2259,7 +2273,7 @@ export const GeneralPane: React.FC = () => {
 
           <InlineField
             label="Thinking"
-            description="Extended thinking for complex tasks"
+            description="Claude Sonnet/traditional thinking level"
           >
             <Select
               value={preferences?.thinking_level ?? 'off'}
@@ -2279,8 +2293,8 @@ export const GeneralPane: React.FC = () => {
           </InlineField>
 
           <InlineField
-            label="Effort level"
-            description="Effort for Opus (requires CLI 2.1.32+)"
+            label="Effort"
+            description="Claude Opus adaptive effort (requires CLI 2.1.32+)"
           >
             <Select
               value={preferences?.default_effort_level ?? 'high'}
@@ -2345,7 +2359,7 @@ export const GeneralPane: React.FC = () => {
 
           <InlineField
             label="Reasoning effort"
-            description="Codex reasoning depth"
+            description="Codex reasoning effort"
           >
             <Select
               value={preferences?.default_codex_reasoning_effort ?? 'high'}

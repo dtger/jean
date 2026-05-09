@@ -30,7 +30,6 @@ import {
   extractTextFilePaths,
 } from '../message-content-utils'
 import { navigateToApprovedWorktree } from '../worktree-approval-navigation'
-import { markWorktreeSilentReady } from '@/services/worktree-silent-ready'
 
 const THINKING_LEVEL_VALUES = new Set<ThinkingLevel>([
   'off',
@@ -214,8 +213,6 @@ export function useWorktreeApproval({
         toast.error(`Failed to create worktree: ${err}`)
         return
       }
-      markWorktreeSilentReady(pendingWorktree.id)
-
       // Step 4: Wait for worktree to be ready
       let readyWorktree: Worktree
       try {

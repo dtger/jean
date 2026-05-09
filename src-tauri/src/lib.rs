@@ -3423,7 +3423,7 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error building tauri application")
-        .run(move |_app_handle, event| match &event {
+        .run(move |app_handle, event| match &event {
             tauri::RunEvent::Exit => {
                 eprintln!("[TERMINAL CLEANUP] RunEvent::Exit received");
                 let killed = terminal::cleanup_all_terminals();
@@ -3441,6 +3441,16 @@ pub fn run() {
                     api.prevent_exit();
                     return;
                 }
+                if chat::has_running_sessions() {
+                    api.prevent_exit();
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.hide();
+                    }
+                    log::info!(
+                        "Prevented app exit while sessions are running; hid main window instead"
+                    );
+                    return;
+                }
                 eprintln!("[TERMINAL CLEANUP] RunEvent::ExitRequested received");
                 let killed = terminal::cleanup_all_terminals();
                 eprintln!("[TERMINAL CLEANUP] Killed {killed} terminal(s) on ExitRequested");
@@ -3455,10 +3465,26 @@ pub fn run() {
                 }
                 chat::codex_server::shutdown_server();
             }
+            tauri::RunEvent::Reopen { .. } => {
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
             tauri::RunEvent::WindowEvent { label, event, .. } => {
-                if let tauri::WindowEvent::CloseRequested { .. } = event {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     // In headless mode, we already closed the window, don't cleanup terminals
                     if headless {
+                        return;
+                    }
+                    if chat::has_running_sessions() {
+                        api.prevent_close();
+                        if let Some(window) = app_handle.get_webview_window(label) {
+                            let _ = window.hide();
+                        }
+                        log::info!(
+                            "Prevented window close while sessions are running; hid {label} instead"
+                        );
                         return;
                     }
                     eprintln!("[TERMINAL CLEANUP] Window {label} close requested");

@@ -41,7 +41,6 @@ import {
   chatQueryKeys,
 } from '@/services/chat'
 import { useWorktree, useProjects, useRunScripts } from '@/services/projects'
-import { markWorktreeSilentReady } from '@/services/worktree-silent-ready'
 import { useProjectsStore } from '@/store/projects-store'
 import type {
   Worktree,
@@ -149,6 +148,7 @@ import type { PrDisplayStatus, CheckStatus } from '@/types/pr-status'
 import type { QueuedMessage, Session, WorktreeSessions } from '@/types/chat'
 import type { DiffRequest } from '@/types/git-diff'
 import { FileDiffModal } from './FileDiffModal'
+import { getEffectiveSessionWaiting } from './session-card-utils'
 
 // Lazy-loaded heavy modals (code splitting)
 const GitDiffModal = lazy(() =>
@@ -721,11 +721,31 @@ export function ChatWindow({
   // Streaming execution mode - uses executing mode when sending, otherwise selected mode
   const streamingExecutionMode = executingMode ?? executionMode
   // Whether this session is waiting for user input (AskUserQuestion/ExitPlanMode)
-  const isWaitingForInput = useChatStore(state =>
+  const rawIsWaitingForInput = useChatStore(state =>
     activeSessionId
       ? (state.waitingForInputSessionIds[activeSessionId] ?? false)
       : false
   )
+  const rawIsReviewingActiveSession = useChatStore(state =>
+    activeSessionId
+      ? (state.reviewingSessions[activeSessionId] ?? false)
+      : false
+  )
+  const activeSessionForStatus = useMemo(() => {
+    if (!activeSessionId) return null
+    if (session?.id === activeSessionId) return session
+    return sessionsData?.sessions.find(s => s.id === activeSessionId) ?? null
+  }, [activeSessionId, session, sessionsData?.sessions])
+  const isWaitingForInput = activeSessionForStatus
+    ? getEffectiveSessionWaiting(activeSessionForStatus, {
+        waitingForInputSessionIds: rawIsWaitingForInput
+          ? { [activeSessionId as string]: true }
+          : {},
+        reviewingSessions: rawIsReviewingActiveSession
+          ? { [activeSessionId as string]: true }
+          : {},
+      })
+    : rawIsWaitingForInput
   // Per-session error state (uses deferredSessionId for content consistency)
   const currentError = useChatStore(state =>
     deferredSessionId ? (state.errors[deferredSessionId] ?? null) : null
@@ -1455,8 +1475,6 @@ export function ChatWindow({
         toast.error(`Failed to create worktree: ${err}`)
         return
       }
-      markWorktreeSilentReady(pendingWorktree.id)
-
       // Wait for worktree to be ready
       let readyWorktree: Worktree
       try {

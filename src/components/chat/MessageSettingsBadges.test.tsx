@@ -33,6 +33,21 @@ describe('MessageSettingsBadges', () => {
     expect(screen.getByText('GPT 5.4')).toBeVisible()
   })
 
+  it('does not show Claude thinking labels for Codex models', () => {
+    render(
+      <MessageSettingsBadges
+        model="gpt-5.5-fast"
+        executionMode="plan"
+        thinkingLevel="megathink"
+        effortLevel={undefined}
+        isCursor={false}
+      />
+    )
+
+    expect(screen.getByText('GPT 5.5 Fast')).toBeVisible()
+    expect(screen.queryByText('· Megathink')).toBeNull()
+  })
+
   it('keeps Claude model labels working', () => {
     render(
       <MessageSettingsBadges

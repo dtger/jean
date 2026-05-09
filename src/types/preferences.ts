@@ -1172,11 +1172,19 @@ export const effortLevelOptions: {
   label: string
   description: string
 }[] = [
-  { value: 'low', label: 'Low', description: 'Minimal thinking' },
-  { value: 'medium', label: 'Medium', description: 'Moderate thinking' },
-  { value: 'high', label: 'High', description: 'Deep reasoning' },
-  { value: 'xhigh', label: 'xHigh', description: 'Extra high (Opus 4.7)' },
-  { value: 'max', label: 'Max', description: 'No limits' },
+  { value: 'low', label: 'Low', description: 'Minimal Claude Opus effort' },
+  {
+    value: 'medium',
+    label: 'Medium',
+    description: 'Moderate Claude Opus effort',
+  },
+  { value: 'high', label: 'High', description: 'High Claude Opus effort' },
+  {
+    value: 'xhigh',
+    label: 'xHigh',
+    description: 'Extra high Claude Opus effort',
+  },
+  { value: 'max', label: 'Max', description: 'Maximum Claude Opus effort' },
 ]
 
 // =============================================================================
@@ -1332,7 +1340,7 @@ export const codexReasoningOptions: {
   { value: 'low', label: 'Low' },
   { value: 'medium', label: 'Medium' },
   { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'Extra High' },
+  { value: 'xhigh', label: 'xHigh' },
 ]
 
 // =============================================================================
