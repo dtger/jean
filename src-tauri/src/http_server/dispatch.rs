@@ -122,22 +122,40 @@ pub async fn dispatch_command(
             let name: Option<String> = from_field_opt(&args, "name")?;
             let default_branch: Option<String> =
                 field_opt(&args, "defaultBranch", "default_branch")?;
+            let enabled_mcp_servers: Option<Vec<String>> =
+                field_opt(&args, "enabledMcpServers", "enabled_mcp_servers")?;
+            let known_mcp_servers: Option<Vec<String>> =
+                field_opt(&args, "knownMcpServers", "known_mcp_servers")?;
+            let custom_system_prompt: Option<String> =
+                field_opt(&args, "customSystemPrompt", "custom_system_prompt")?;
+            let default_provider: Option<Option<String>> =
+                field_opt(&args, "defaultProvider", "default_provider")?;
+            let default_backend: Option<Option<String>> =
+                field_opt(&args, "defaultBackend", "default_backend")?;
+            let worktrees_dir: Option<String> = field_opt(&args, "worktreesDir", "worktrees_dir")?;
+            let linear_api_key: Option<String> =
+                field_opt(&args, "linearApiKey", "linear_api_key")?;
+            let linear_team_id: Option<String> =
+                field_opt(&args, "linearTeamId", "linear_team_id")?;
+            let linked_project_ids: Option<Vec<String>> =
+                field_opt(&args, "linkedProjectIds", "linked_project_ids")?;
             let result = crate::projects::update_project_settings(
                 app.clone(),
                 project_id,
                 name,
                 default_branch,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
+                enabled_mcp_servers,
+                known_mcp_servers,
+                custom_system_prompt,
+                default_provider,
+                default_backend,
+                worktrees_dir,
+                linear_api_key,
+                linear_team_id,
+                linked_project_ids,
             )
             .await?;
+            emit_cache_invalidation(app, &["projects"]);
             to_value(result)
         }
         "reorder_projects" => {
@@ -1778,17 +1796,6 @@ pub async fn dispatch_command(
             emit_cache_invalidation(app, &["contexts"]);
             Ok(Value::Null)
         }
-        "generate_session_digest" => {
-            let session_id: String = field(&args, "sessionId", "session_id")?;
-            let result = crate::chat::generate_session_digest(app.clone(), session_id).await?;
-            to_value(result)
-        }
-        "update_session_digest" => {
-            let session_id: String = field(&args, "sessionId", "session_id")?;
-            let digest: crate::chat::types::SessionDigest = from_field(&args, "digest")?;
-            crate::chat::update_session_digest(app.clone(), session_id, digest).await?;
-            Ok(Value::Null)
-        }
         "get_session_debug_info" => {
             let worktree_id: String = field(&args, "worktreeId", "worktree_id")?;
             let worktree_path: String = field(&args, "worktreePath", "worktree_path")?;
@@ -1844,6 +1851,10 @@ pub async fn dispatch_command(
             crate::claude_cli::install_claude_cli(app.clone(), version).await?;
             Ok(Value::Null)
         }
+        "uninstall_claude_cli" => {
+            crate::claude_cli::uninstall_claude_cli(app.clone()).await?;
+            Ok(Value::Null)
+        }
         "check_cursor_cli_installed" => {
             let result = crate::cursor_cli::check_cursor_cli_installed(app.clone()).await?;
             to_value(result)
@@ -1897,6 +1908,10 @@ pub async fn dispatch_command(
             crate::opencode_cli::install_opencode_cli(app.clone(), version).await?;
             Ok(Value::Null)
         }
+        "uninstall_opencode_cli" => {
+            crate::opencode_cli::uninstall_opencode_cli(app.clone()).await?;
+            Ok(Value::Null)
+        }
         "list_opencode_models" => {
             let result = crate::opencode_cli::list_opencode_models(app.clone()).await?;
             to_value(result)
@@ -1921,6 +1936,18 @@ pub async fn dispatch_command(
             let version: Option<String> = from_field_opt(&args, "version")?;
             crate::gh_cli::install_gh_cli(app.clone(), version).await?;
             Ok(Value::Null)
+        }
+        "uninstall_gh_cli" => {
+            crate::gh_cli::uninstall_gh_cli(app.clone()).await?;
+            Ok(Value::Null)
+        }
+        "run_cli_path_update" => {
+            let command: String = from_field(&args, "command")?;
+            let cli_args: Vec<String> = from_field(&args, "args")?;
+            let cli_type: String = field(&args, "cliType", "cli_type")?;
+            let result =
+                crate::cli_update::run_cli_path_update(command, cli_args, cli_type).await?;
+            to_value(result)
         }
 
         // =====================================================================
@@ -1980,6 +2007,10 @@ pub async fn dispatch_command(
             crate::codex_cli::install_codex_cli(app.clone(), version).await?;
             Ok(Value::Null)
         }
+        "uninstall_codex_cli" => {
+            crate::codex_cli::uninstall_codex_cli(app.clone()).await?;
+            Ok(Value::Null)
+        }
         "approve_codex_command" => {
             let session_id: String = field(&args, "sessionId", "session_id")?;
             let rpc_id: u64 = field(&args, "rpcId", "rpc_id")?;
@@ -2036,6 +2067,49 @@ pub async fn dispatch_command(
                 success,
                 content_items,
             )?;
+            Ok(Value::Null)
+        }
+        "codex_goal_set" => {
+            let worktree_id: String = field(&args, "worktreeId", "worktree_id")?;
+            let worktree_path: String = field(&args, "worktreePath", "worktree_path")?;
+            let session_id: String = field(&args, "sessionId", "session_id")?;
+            let objective: String = from_field(&args, "objective")?;
+            let app_clone = app.clone();
+            tokio::task::spawn_blocking(move || {
+                crate::chat::codex_goal_set(
+                    app_clone,
+                    worktree_id,
+                    worktree_path,
+                    session_id,
+                    objective,
+                )
+            })
+            .await
+            .map_err(|e| e.to_string())??;
+            Ok(Value::Null)
+        }
+        "codex_goal_get" => {
+            let worktree_id: String = field(&args, "worktreeId", "worktree_id")?;
+            let worktree_path: String = field(&args, "worktreePath", "worktree_path")?;
+            let session_id: String = field(&args, "sessionId", "session_id")?;
+            let app_clone = app.clone();
+            let goal = tokio::task::spawn_blocking(move || {
+                crate::chat::codex_goal_get(app_clone, worktree_id, worktree_path, session_id)
+            })
+            .await
+            .map_err(|e| e.to_string())??;
+            to_value(goal)
+        }
+        "codex_goal_clear" => {
+            let worktree_id: String = field(&args, "worktreeId", "worktree_id")?;
+            let worktree_path: String = field(&args, "worktreePath", "worktree_path")?;
+            let session_id: String = field(&args, "sessionId", "session_id")?;
+            let app_clone = app.clone();
+            tokio::task::spawn_blocking(move || {
+                crate::chat::codex_goal_clear(app_clone, worktree_id, worktree_path, session_id)
+            })
+            .await
+            .map_err(|e| e.to_string())??;
             Ok(Value::Null)
         }
 
@@ -2194,9 +2268,8 @@ pub async fn dispatch_command(
         }
         "set_session_last_opened" => {
             let session_id: String = field(&args, "sessionId", "session_id")?;
-            let transitioned =
-                crate::chat::set_session_last_opened(app.clone(), session_id).await?;
-            to_value(transitioned)
+            crate::chat::set_session_last_opened(app.clone(), session_id).await?;
+            Ok(Value::Null)
         }
         "set_sessions_last_opened_bulk" => {
             let session_ids: Vec<String> = field(&args, "sessionIds", "session_ids")?;

@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { invoke } from '@/lib/transport'
 import { openExternal } from '@/lib/platform'
+import { dismissibleToast } from '@/lib/dismissible-toast'
 import type { QueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { generateId } from '@/lib/uuid'
@@ -146,7 +147,7 @@ export function useGitOperations({
         override?.model ??
         preferences?.magic_prompt_models?.resolve_conflicts_model ??
         (backend === 'codex'
-          ? (preferences?.selected_codex_model ?? 'gpt-5.4')
+          ? (preferences?.selected_codex_model ?? 'gpt-5.5')
           : backend === 'pi'
             ? (preferences?.selected_pi_model ?? 'pi/openai/gpt-5.5')
             : backend === 'opencode'
@@ -155,6 +156,7 @@ export function useGitOperations({
               : backend === 'cursor'
                 ? (preferences?.selected_cursor_model ?? 'cursor/auto')
                 : (preferences?.selected_model ?? 'sonnet'))
+
       const provider =
         override?.backend && override.backend !== 'claude'
           ? null
@@ -232,7 +234,7 @@ export function useGitOperations({
       project?.name && worktree?.name
         ? `${project.name}/${worktree.name}`
         : (worktree?.name ?? '')
-    const toastId = toast.loading(`Creating commit on ${prefix}...`)
+    const opToast = dismissibleToast.loading(`Creating commit on ${prefix}...`)
 
     try {
       const result = await invoke<CreateCommitResponse>(
@@ -258,11 +260,9 @@ export function useGitOperations({
       triggerImmediateGitPoll()
       window.dispatchEvent(new CustomEvent('git-commit-completed'))
 
-      toast.success(`${prefix}: ${result.message.split('\n')[0]}`, {
-        id: toastId,
-      })
+      opToast.success(`${prefix}: ${result.message.split('\n')[0]}`)
     } catch (error) {
-      toast.error(`${prefix}: Failed to commit: ${error}`, { id: toastId })
+      opToast.error(`${prefix}: Failed to commit: ${error}`)
     } finally {
       clearWorktreeLoading(activeWorktreeId)
     }
@@ -295,7 +295,9 @@ export function useGitOperations({
         project?.name && worktree?.name
           ? `${project.name}/${worktree.name}`
           : (worktree?.name ?? '')
-      const toastId = toast.loading(`Committing and pushing on ${prefix}...`)
+      const opToast = dismissibleToast.loading(
+        `Committing and pushing on ${prefix}...`
+      )
 
       try {
         const result = await invoke<CreateCommitResponse>(
@@ -324,10 +326,9 @@ export function useGitOperations({
         window.dispatchEvent(new CustomEvent('git-commit-completed'))
 
         if (result.push_permission_denied) {
-          toast.error(
+          opToast.error(
             `${prefix}: No permission to push to PR #${worktree?.pr_number}. Create a separate PR instead.`,
             {
-              id: toastId,
               action: {
                 label: 'Open PR',
                 onClick: () =>
@@ -340,19 +341,16 @@ export function useGitOperations({
             }
           )
         } else if (result.push_fell_back) {
-          toast.warning(
-            `${prefix}: Could not push to PR branch, pushed to new branch instead`,
-            { id: toastId }
+          opToast.warning(
+            `${prefix}: Could not push to PR branch, pushed to new branch instead`
           )
         } else if (result.commit_hash) {
-          toast.success(`${prefix}: ${result.message.split('\n')[0]}`, {
-            id: toastId,
-          })
+          opToast.success(`${prefix}: ${result.message.split('\n')[0]}`)
         } else {
-          toast.success(`${prefix}: Pushed to remote`, { id: toastId })
+          opToast.success(`${prefix}: Pushed to remote`)
         }
       } catch (error) {
-        toast.error(`${prefix}: Failed: ${error}`, { id: toastId })
+        opToast.error(`${prefix}: Failed: ${error}`)
       } finally {
         clearWorktreeLoading(activeWorktreeId)
       }
@@ -408,7 +406,7 @@ export function useGitOperations({
         useChatStore.getState()
       setWorktreeLoading(activeWorktreeId, 'commit')
       const branch = worktree?.branch ?? ''
-      const toastId = toast.loading(`Pushing ${branch}...`)
+      const opToast = dismissibleToast.loading(`Pushing ${branch}...`)
 
       try {
         const result = await gitPush(
@@ -418,10 +416,9 @@ export function useGitOperations({
         )
         triggerImmediateGitPoll()
         if (result.permissionDenied) {
-          toast.error(
+          opToast.error(
             `No permission to push to PR #${worktree?.pr_number}. Create a separate PR instead.`,
             {
-              id: toastId,
               action: {
                 label: 'Open PR',
                 onClick: () =>
@@ -434,15 +431,14 @@ export function useGitOperations({
             }
           )
         } else if (result.fellBack) {
-          toast.warning(
-            'Could not push to PR branch, pushed to new branch instead',
-            { id: toastId }
+          opToast.warning(
+            'Could not push to PR branch, pushed to new branch instead'
           )
         } else {
-          toast.success('Changes pushed', { id: toastId })
+          opToast.success('Changes pushed')
         }
       } catch (error) {
-        toast.error(`Push failed: ${error}`, { id: toastId })
+        opToast.error(`Push failed: ${error}`)
       } finally {
         clearWorktreeLoading(activeWorktreeId)
       }

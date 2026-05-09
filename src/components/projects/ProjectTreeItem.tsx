@@ -7,8 +7,8 @@ import {
   Plus,
 } from 'lucide-react'
 import { convertFileSrc } from '@/lib/transport'
-import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { dismissibleToast } from '@/lib/dismissible-toast'
 import type { Project } from '@/types/projects'
 import { isBaseSession } from '@/types/projects'
 import { useProjectsStore } from '@/store/projects-store'
@@ -142,13 +142,13 @@ export function ProjectTreeItem({ project }: ProjectTreeItemProps) {
   const handleBasePush = useCallback(
     async (e: React.MouseEvent) => {
       e.stopPropagation()
-      const toastId = toast.loading('Pushing changes...')
+      const opToast = dismissibleToast.loading('Pushing changes...')
       try {
         await gitPush(project.path)
         fetchWorktreesStatus(project.id)
-        toast.success('Changes pushed', { id: toastId })
+        opToast.success('Changes pushed')
       } catch (error) {
-        toast.error(`Push failed: ${error}`, { id: toastId })
+        opToast.error(`Push failed: ${error}`)
       }
     },
     [project.id, project.path]
@@ -188,7 +188,12 @@ export function ProjectTreeItem({ project }: ProjectTreeItemProps) {
             <span className="truncate">{project.name}</span>
             {hasWorktrees && (
               <button
-                className="flex size-4 shrink-0 items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-50 hover:!opacity-100 hover:bg-accent-foreground/10"
+                className={cn(
+                  'flex size-4 shrink-0 items-center justify-center rounded transition-opacity hover:bg-accent-foreground/10',
+                  isMobile
+                    ? 'opacity-70'
+                    : 'opacity-0 group-hover:opacity-50 hover:!opacity-100'
+                )}
                 onClick={handleChevronClick}
               >
                 <ChevronDown

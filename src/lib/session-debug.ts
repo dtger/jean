@@ -19,6 +19,7 @@ function getModelImpliedBackend(model: string | undefined): Backend | null {
   if (!model) return null
   if (model.startsWith('cursor/')) return 'cursor'
   if (model.startsWith('opencode/')) return 'opencode'
+  if (model.startsWith('pi/')) return 'pi'
   if (model.startsWith('codex') || model.includes('codex')) return 'codex'
   if (model.startsWith('gpt-')) return 'codex'
   return null
@@ -71,7 +72,7 @@ export function resolveSessionDebugDetails(params: {
 
   const defaultModel =
     finalBackend === 'codex'
-      ? (preferences?.selected_codex_model ?? 'gpt-5.4')
+      ? (preferences?.selected_codex_model ?? 'gpt-5.5')
       : finalBackend === 'pi'
         ? (preferences?.selected_pi_model ?? 'pi/openai/gpt-5.5')
         : finalBackend === 'opencode'

@@ -70,7 +70,7 @@ function getDefaultModelForBackend(
     | undefined
 ): string {
   if (backend === 'codex') {
-    return preferences?.selected_codex_model ?? 'gpt-5.4'
+    return preferences?.selected_codex_model ?? 'gpt-5.5'
   }
   if (backend === 'pi') {
     return preferences?.selected_pi_model ?? 'pi/openai/gpt-5.5'
@@ -81,7 +81,7 @@ function getDefaultModelForBackend(
   if (backend === 'cursor') {
     return preferences?.selected_cursor_model ?? 'cursor/auto'
   }
-  return preferences?.selected_model ?? 'claude-opus-4-7'
+  return preferences?.selected_model ?? 'claude-opus-4-7[1m]'
 }
 
 interface UseClearContextApprovalParams {

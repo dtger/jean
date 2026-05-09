@@ -10,11 +10,17 @@ import {
 import type { AppPreferences } from '@/types/preferences'
 import {
   FONT_SIZE_DEFAULT,
+  codexDefaultModelOptions,
+  CODEX_DEFAULT_MAGIC_PROMPT_MODELS,
+  CODEX_FAST_DEFAULT_MAGIC_PROMPT_MODELS,
   DEFAULT_MAGIC_PROMPTS,
   DEFAULT_MAGIC_PROMPT_MODELS,
   DEFAULT_MAGIC_PROMPT_PROVIDERS,
   DEFAULT_MAGIC_PROMPT_BACKENDS,
   DEFAULT_MAGIC_PROMPT_EFFORTS,
+  modelOptions,
+  normalizeClaudeModel,
+  normalizeCodexModel,
 } from '@/types/preferences'
 import { DEFAULT_KEYBINDINGS } from '@/types/keybindings'
 
@@ -53,6 +59,37 @@ const createWrapper = (queryClient: QueryClient) => {
   Wrapper.displayName = 'TestQueryClientWrapper'
   return Wrapper
 }
+
+describe('model option helpers', () => {
+  it('uses 1M Claude variants where available and keeps no-1M-only models', () => {
+    expect(modelOptions.map(option => option.value)).toEqual([
+      'claude-opus-4-7[1m]',
+      'claude-opus-4-6[1m]',
+      'claude-opus-4-5-20251101',
+      'claude-sonnet-4-6[1m]',
+      'haiku',
+    ])
+    expect(normalizeClaudeModel('sonnet')).toBe('claude-sonnet-4-6[1m]')
+    expect(normalizeClaudeModel('claude-opus-4-7')).toBe('claude-opus-4-7[1m]')
+  })
+
+  it('offers Codex fast modes for default selectors', () => {
+    const values = codexDefaultModelOptions.map(option => option.value)
+    expect(values).toContain('gpt-5.5-fast')
+    expect(values).toContain('gpt-5.4-fast')
+    expect(values).toContain('gpt-5.4-mini-fast')
+    expect(normalizeCodexModel('gpt-5.5-fast')).toBe('gpt-5.5-fast')
+  })
+
+  it('uses GPT 5.5 for Codex magic presets', () => {
+    expect(new Set(Object.values(CODEX_DEFAULT_MAGIC_PROMPT_MODELS))).toEqual(
+      new Set(['gpt-5.5'])
+    )
+    expect(
+      new Set(Object.values(CODEX_FAST_DEFAULT_MAGIC_PROMPT_MODELS))
+    ).toEqual(new Set(['gpt-5.5-fast']))
+  })
+})
 
 describe('preferences service', () => {
   let queryClient: QueryClient
@@ -101,8 +138,8 @@ describe('preferences service', () => {
         archive_retention_days: 30,
         syntax_theme_dark: 'vitesse-black',
         syntax_theme_light: 'github-light',
-        session_recap_enabled: false,
         parallel_execution_prompt_enabled: false,
+        compact_chat_view_enabled: false,
         magic_prompts: DEFAULT_MAGIC_PROMPTS,
         magic_prompt_models: DEFAULT_MAGIC_PROMPT_MODELS,
         magic_prompt_providers: DEFAULT_MAGIC_PROMPT_PROVIDERS,
@@ -133,13 +170,15 @@ describe('preferences service', () => {
         zoom_level: 100,
         custom_cli_profiles: [],
         default_provider: null,
+        favorite_models: [],
+        fast_mode_models: [],
 
         auto_save_context: false,
         auto_pull_base_branch: true,
         confirm_session_close: true,
         default_execution_mode: 'plan',
         default_backend: 'claude',
-        selected_codex_model: 'gpt-5.4',
+        selected_codex_model: 'gpt-5.5',
         selected_opencode_model: 'opencode/gpt-5.3-codex',
         selected_pi_model: 'pi/openai/gpt-5.5',
         selected_cursor_model: 'cursor/auto',
@@ -163,6 +202,7 @@ describe('preferences service', () => {
         opencode_cli_source: 'jean',
         gh_cli_source: 'jean',
         expand_tool_calls_by_default: false,
+        auto_update_ai_backends: true,
       }
       vi.mocked(invoke).mockResolvedValueOnce(mockPreferences)
 
@@ -187,7 +227,7 @@ describe('preferences service', () => {
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
       expect(result.current.data?.theme).toBe('system')
-      expect(result.current.data?.selected_model).toBe('claude-opus-4-7')
+      expect(result.current.data?.selected_model).toBe('claude-opus-4-7[1m]')
     })
 
     it('returns defaults on backend error', async () => {
@@ -229,8 +269,8 @@ describe('preferences service', () => {
         archive_retention_days: 30,
         syntax_theme_dark: 'vitesse-black',
         syntax_theme_light: 'github-light',
-        session_recap_enabled: false,
         parallel_execution_prompt_enabled: false,
+        compact_chat_view_enabled: false,
         magic_prompts: DEFAULT_MAGIC_PROMPTS,
         magic_prompt_models: DEFAULT_MAGIC_PROMPT_MODELS,
         magic_prompt_providers: DEFAULT_MAGIC_PROMPT_PROVIDERS,
@@ -261,13 +301,15 @@ describe('preferences service', () => {
         zoom_level: 100,
         custom_cli_profiles: [],
         default_provider: null,
+        favorite_models: [],
+        fast_mode_models: [],
 
         auto_save_context: false,
         auto_pull_base_branch: true,
         confirm_session_close: true,
         default_execution_mode: 'plan',
         default_backend: 'claude',
-        selected_codex_model: 'gpt-5.4',
+        selected_codex_model: 'gpt-5.5',
         selected_opencode_model: 'opencode/gpt-5.3-codex',
         selected_pi_model: 'pi/openai/gpt-5.5',
         selected_cursor_model: 'cursor/auto',
@@ -291,6 +333,7 @@ describe('preferences service', () => {
         opencode_cli_source: 'jean',
         gh_cli_source: 'jean',
         expand_tool_calls_by_default: false,
+        auto_update_ai_backends: true,
       }
       vi.mocked(invoke).mockResolvedValueOnce(prefsWithOldBinding)
 
@@ -329,8 +372,8 @@ describe('preferences service', () => {
         archive_retention_days: 30,
         syntax_theme_dark: 'vitesse-black',
         syntax_theme_light: 'github-light',
-        session_recap_enabled: false,
         parallel_execution_prompt_enabled: false,
+        compact_chat_view_enabled: false,
         magic_prompts: DEFAULT_MAGIC_PROMPTS,
         magic_prompt_models: DEFAULT_MAGIC_PROMPT_MODELS,
         magic_prompt_providers: DEFAULT_MAGIC_PROMPT_PROVIDERS,
@@ -361,6 +404,8 @@ describe('preferences service', () => {
         zoom_level: 100,
         custom_cli_profiles: [],
         default_provider: null,
+        favorite_models: [],
+        fast_mode_models: [],
 
         auto_save_context: false,
         auto_pull_base_branch: true,
@@ -392,6 +437,7 @@ describe('preferences service', () => {
         opencode_cli_source: 'jean',
         gh_cli_source: 'jean',
         expand_tool_calls_by_default: false,
+        auto_update_ai_backends: true,
       }
       vi.mocked(invoke).mockResolvedValueOnce(prefsWithDeprecatedFastModel)
 
@@ -431,8 +477,8 @@ describe('preferences service', () => {
         archive_retention_days: 7,
         syntax_theme_dark: 'vitesse-black',
         syntax_theme_light: 'github-light',
-        session_recap_enabled: false,
         parallel_execution_prompt_enabled: false,
+        compact_chat_view_enabled: false,
         magic_prompts: DEFAULT_MAGIC_PROMPTS,
         magic_prompt_models: DEFAULT_MAGIC_PROMPT_MODELS,
         magic_prompt_providers: DEFAULT_MAGIC_PROMPT_PROVIDERS,
@@ -463,13 +509,15 @@ describe('preferences service', () => {
         zoom_level: 100,
         custom_cli_profiles: [],
         default_provider: null,
+        favorite_models: [],
+        fast_mode_models: [],
 
         auto_save_context: false,
         auto_pull_base_branch: true,
         confirm_session_close: true,
         default_execution_mode: 'plan',
         default_backend: 'claude',
-        selected_codex_model: 'gpt-5.4',
+        selected_codex_model: 'gpt-5.5',
         selected_opencode_model: 'opencode/gpt-5.3-codex',
         selected_pi_model: 'pi/openai/gpt-5.5',
         selected_cursor_model: 'cursor/auto',
@@ -493,6 +541,7 @@ describe('preferences service', () => {
         opencode_cli_source: 'jean',
         gh_cli_source: 'jean',
         expand_tool_calls_by_default: false,
+        auto_update_ai_backends: true,
       }
 
       const { result } = renderHook(() => useSavePreferences(), {
@@ -534,8 +583,8 @@ describe('preferences service', () => {
         archive_retention_days: 30,
         syntax_theme_dark: 'vitesse-black',
         syntax_theme_light: 'github-light',
-        session_recap_enabled: false,
         parallel_execution_prompt_enabled: false,
+        compact_chat_view_enabled: false,
         magic_prompts: DEFAULT_MAGIC_PROMPTS,
         magic_prompt_models: DEFAULT_MAGIC_PROMPT_MODELS,
         magic_prompt_providers: DEFAULT_MAGIC_PROMPT_PROVIDERS,
@@ -566,13 +615,15 @@ describe('preferences service', () => {
         zoom_level: 100,
         custom_cli_profiles: [],
         default_provider: null,
+        favorite_models: [],
+        fast_mode_models: [],
 
         auto_save_context: false,
         auto_pull_base_branch: true,
         confirm_session_close: true,
         default_execution_mode: 'plan',
         default_backend: 'claude',
-        selected_codex_model: 'gpt-5.4',
+        selected_codex_model: 'gpt-5.5',
         selected_opencode_model: 'opencode/gpt-5.3-codex',
         selected_pi_model: 'pi/openai/gpt-5.5',
         selected_cursor_model: 'cursor/auto',
@@ -596,6 +647,7 @@ describe('preferences service', () => {
         opencode_cli_source: 'jean',
         gh_cli_source: 'jean',
         expand_tool_calls_by_default: false,
+        auto_update_ai_backends: true,
       }
 
       const { result } = renderHook(() => useSavePreferences(), {
@@ -637,8 +689,8 @@ describe('preferences service', () => {
         archive_retention_days: 30,
         syntax_theme_dark: 'vitesse-black',
         syntax_theme_light: 'github-light',
-        session_recap_enabled: false,
         parallel_execution_prompt_enabled: false,
+        compact_chat_view_enabled: false,
         magic_prompts: DEFAULT_MAGIC_PROMPTS,
         magic_prompt_models: DEFAULT_MAGIC_PROMPT_MODELS,
         magic_prompt_providers: DEFAULT_MAGIC_PROMPT_PROVIDERS,
@@ -669,13 +721,15 @@ describe('preferences service', () => {
         zoom_level: 100,
         custom_cli_profiles: [],
         default_provider: null,
+        favorite_models: [],
+        fast_mode_models: [],
 
         auto_save_context: false,
         auto_pull_base_branch: true,
         confirm_session_close: true,
         default_execution_mode: 'plan',
         default_backend: 'claude',
-        selected_codex_model: 'gpt-5.4',
+        selected_codex_model: 'gpt-5.5',
         selected_opencode_model: 'opencode/gpt-5.3-codex',
         selected_pi_model: 'pi/openai/gpt-5.5',
         selected_cursor_model: 'cursor/auto',
@@ -699,6 +753,7 @@ describe('preferences service', () => {
         opencode_cli_source: 'jean',
         gh_cli_source: 'jean',
         expand_tool_calls_by_default: false,
+        auto_update_ai_backends: true,
       }
 
       const { result } = renderHook(() => useSavePreferences(), {
@@ -738,8 +793,8 @@ describe('preferences service', () => {
         archive_retention_days: 30,
         syntax_theme_dark: 'vitesse-black',
         syntax_theme_light: 'github-light',
-        session_recap_enabled: false,
         parallel_execution_prompt_enabled: false,
+        compact_chat_view_enabled: false,
         magic_prompts: DEFAULT_MAGIC_PROMPTS,
         magic_prompt_models: DEFAULT_MAGIC_PROMPT_MODELS,
         magic_prompt_providers: DEFAULT_MAGIC_PROMPT_PROVIDERS,
@@ -770,13 +825,15 @@ describe('preferences service', () => {
         zoom_level: 100,
         custom_cli_profiles: [],
         default_provider: null,
+        favorite_models: [],
+        fast_mode_models: [],
 
         auto_save_context: false,
         auto_pull_base_branch: true,
         confirm_session_close: true,
         default_execution_mode: 'plan',
         default_backend: 'claude',
-        selected_codex_model: 'gpt-5.4',
+        selected_codex_model: 'gpt-5.5',
         selected_opencode_model: 'opencode/gpt-5.3-codex',
         selected_pi_model: 'pi/openai/gpt-5.5',
         selected_cursor_model: 'cursor/auto',
@@ -800,6 +857,7 @@ describe('preferences service', () => {
         opencode_cli_source: 'jean',
         gh_cli_source: 'jean',
         expand_tool_calls_by_default: false,
+        auto_update_ai_backends: true,
       }
 
       const { result } = renderHook(() => useSavePreferences(), {

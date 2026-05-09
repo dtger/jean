@@ -16,8 +16,7 @@ use super::storage::{
 };
 use super::types::{
     AllSessionsEntry, AllSessionsResponse, Backend, ChatMessage, ClaudeContext, EffortLevel,
-    LabelData, MessageRole, RunStatus, Session, SessionDigest, ThinkingLevel, WorktreeIndex,
-    WorktreeSessions,
+    LabelData, MessageRole, RunStatus, Session, ThinkingLevel, WorktreeIndex, WorktreeSessions,
 };
 use crate::claude_cli::resolve_cli_binary;
 use crate::http_server::EmitExt;
@@ -1427,14 +1426,11 @@ pub async fn set_active_session(
 }
 
 /// Update the last_opened_at timestamp on a session's metadata.
-/// For non-Claude sessions that are waiting for input, also transition to review
-/// (viewing the session acts as acknowledgment).
-/// Returns true if the session was transitioned from waiting to review.
+/// View-only: never mutates waiting/review state — explicit user actions
+/// (approve/reject/answer) are the only path out of waiting.
 #[tauri::command]
-pub async fn set_session_last_opened(app: AppHandle, session_id: String) -> Result<bool, String> {
+pub async fn set_session_last_opened(app: AppHandle, session_id: String) -> Result<(), String> {
     log::trace!("Setting last_opened_at for session: {session_id}");
-
-    let mut transitioned = false;
 
     if let Ok(Some(mut metadata)) = load_metadata(&app, &session_id) {
         let now = SystemTime::now()
@@ -1442,29 +1438,10 @@ pub async fn set_session_last_opened(app: AppHandle, session_id: String) -> Resu
             .unwrap_or_default()
             .as_secs();
         metadata.last_opened_at = Some(now);
-
-        // Auto-transition plan-waiting non-Claude sessions to review.
-        // Question-waiting sessions must NOT be auto-transitioned (user must answer).
-        if metadata.waiting_for_input
-            && metadata.waiting_for_input_type.as_deref() == Some("plan")
-            && metadata.backend != super::types::Backend::Claude
-        {
-            metadata.waiting_for_input = false;
-            metadata.waiting_for_input_type = None;
-            metadata.is_reviewing = true;
-            metadata.pending_plan_message_id = None;
-            transitioned = true;
-            log::debug!("Auto-transitioned session {session_id} from waiting to review");
-        }
-
         save_metadata(&app, &metadata)?;
-
-        if transitioned {
-            emit_sessions_cache_invalidation(&app);
-        }
     }
 
-    Ok(transitioned)
+    Ok(())
 }
 
 /// Bulk-update last_opened_at for multiple sessions in a single call.
@@ -2164,6 +2141,7 @@ pub async fn send_chat_message(
 \n\
 - Make the plan extremely concise. Sacrifice grammar for the sake of concision.\n\
 - At the end of each plan, give me a list of unresolved questions to answer, if any.\n\
+- In planning mode, present plans using the backend's native plan tool/UI call when available (Claude ExitPlanMode, Codex update_plan/CodexPlan, Cursor/OpenCode equivalent), not plain text only.\n\
 \n\
 ## Not Plan Mode\n\
 \n\
@@ -2179,7 +2157,8 @@ pub async fn send_chat_message(
                             "You are in PLANNING MODE (read-only sandbox). Create a detailed implementation plan. \
                              Do NOT attempt to make any file changes — you are running in a read-only sandbox and writes will fail. \
                              Describe exactly what changes you WOULD make: which files to create/modify, \
-                             what code to write, and in what order. End with any unresolved questions."
+                             what code to write, and in what order. Use the native plan tool/UI call to show the plan when available. \
+                             End with any unresolved questions."
                                 .to_string(),
                         );
                     }
@@ -2192,7 +2171,7 @@ pub async fn send_chat_message(
                         }
                     }
 
-                    // Global system prompt from preferences
+                    // Global system prompt from preferences (with default fallback)
                     if let Ok(prefs_path) = crate::get_preferences_path(&thread_app) {
                         if let Ok(contents) = std::fs::read_to_string(&prefs_path) {
                             if let Ok(prefs) =
@@ -2273,6 +2252,9 @@ pub async fn send_chat_message(
                             ));
                         }
                     }
+
+                    // End-of-turn recap instruction (compact view surfaces this block)
+                    system_prompt_parts.push(super::RECAP_INSTRUCTION.to_string());
 
                     // Collect context file paths (issues, PRs, saved contexts)
                     let mut all_context_paths: Vec<std::path::PathBuf> = Vec::new();
@@ -2628,6 +2610,9 @@ pub async fn send_chat_message(
                         }
                     }
 
+                    // End-of-turn recap instruction (compact view surfaces this block)
+                    system_prompt_parts.push(super::RECAP_INSTRUCTION.to_string());
+
                     // Collect and inline context files (issues, PRs, saved contexts)
                     let mut context_content = String::new();
 
@@ -2882,6 +2867,9 @@ pub async fn send_chat_message(
                             ));
                         }
                     }
+
+                    // End-of-turn recap instruction (compact view surfaces this block)
+                    parts.push(super::RECAP_INSTRUCTION.to_string());
 
                     if parts.is_empty() {
                         None
@@ -3517,6 +3505,178 @@ pub async fn set_session_backend(
             Err(format!("Session not found: {session_id}"))
         }
     })
+}
+
+// =============================================================================
+// Codex `/goal` long-horizon mode (codex backend only)
+// =============================================================================
+//
+// Wraps the codex app-server experimental `thread/goal/{set,get,clear}` RPCs.
+// The goal is also persisted on `Session.codex_goal` so the UI banner survives
+// restarts; the server-side `thread/goal/updated` notification handler keeps
+// the persisted copy in sync if the model itself toggles the goal.
+
+/// Set or replace the persisted goal for a codex session.
+///
+/// If no codex thread exists yet (no first message sent), the goal is buffered
+/// on `Session.codex_goal` and pushed to the app-server via `thread/goal/set`
+/// after `thread/start` succeeds (see `flush_pending_codex_goal`).
+#[tauri::command]
+pub fn codex_goal_set(
+    app: AppHandle,
+    worktree_id: String,
+    worktree_path: String,
+    session_id: String,
+    objective: String,
+) -> Result<(), String> {
+    let trimmed = objective.trim();
+    if trimmed.is_empty() {
+        return Err("Goal objective cannot be empty".to_string());
+    }
+
+    let thread_id = codex_thread_id_for_session(&app, &worktree_id, &worktree_path, &session_id)?;
+
+    if let Some(tid) = thread_id {
+        super::codex_server::ensure_running(&app)?;
+        let params = serde_json::json!({ "threadId": tid, "goal": trimmed });
+        super::codex_server::send_request("thread/goal/set", params)?;
+    }
+
+    persist_codex_goal(
+        &app,
+        &worktree_id,
+        &worktree_path,
+        &session_id,
+        Some(trimmed.to_string()),
+    )?;
+    Ok(())
+}
+
+/// Read the current persisted goal for a codex session.
+#[tauri::command]
+pub fn codex_goal_get(
+    app: AppHandle,
+    worktree_id: String,
+    worktree_path: String,
+    session_id: String,
+) -> Result<Option<String>, String> {
+    let thread_id = codex_thread_id_for_session(&app, &worktree_id, &worktree_path, &session_id)?;
+
+    let goal = if let Some(tid) = thread_id {
+        super::codex_server::ensure_running(&app)?;
+        let response = super::codex_server::send_request(
+            "thread/goal/get",
+            serde_json::json!({ "threadId": tid }),
+        )?;
+        response
+            .get("goal")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+    } else {
+        super::storage::with_sessions_mut(&app, &worktree_path, &worktree_id, |sessions| {
+            Ok(sessions
+                .find_session(&session_id)
+                .and_then(|s| s.codex_goal.clone()))
+        })?
+    };
+
+    persist_codex_goal(
+        &app,
+        &worktree_id,
+        &worktree_path,
+        &session_id,
+        goal.clone(),
+    )?;
+    Ok(goal)
+}
+
+/// Clear the persisted goal for a codex session.
+#[tauri::command]
+pub fn codex_goal_clear(
+    app: AppHandle,
+    worktree_id: String,
+    worktree_path: String,
+    session_id: String,
+) -> Result<(), String> {
+    let thread_id = codex_thread_id_for_session(&app, &worktree_id, &worktree_path, &session_id)?;
+
+    if let Some(tid) = thread_id {
+        super::codex_server::ensure_running(&app)?;
+        super::codex_server::send_request(
+            "thread/goal/clear",
+            serde_json::json!({ "threadId": tid }),
+        )?;
+    }
+
+    persist_codex_goal(&app, &worktree_id, &worktree_path, &session_id, None)?;
+    Ok(())
+}
+
+/// Resolve the codex thread ID for a session, returning `None` if no thread
+/// has been started yet. Errors only when the session is missing or the
+/// backend is not codex.
+fn codex_thread_id_for_session(
+    app: &AppHandle,
+    worktree_id: &str,
+    worktree_path: &str,
+    session_id: &str,
+) -> Result<Option<String>, String> {
+    super::storage::with_sessions_mut(app, worktree_path, worktree_id, |sessions| {
+        let session = sessions
+            .find_session(session_id)
+            .ok_or_else(|| format!("Session not found: {session_id}"))?;
+        if !matches!(session.backend, super::types::Backend::Codex) {
+            return Err("/goal is only available on codex sessions".to_string());
+        }
+        Ok(session.codex_thread_id.clone())
+    })
+}
+
+/// Push a buffered `Session.codex_goal` into the app-server via
+/// `thread/goal/set` after a fresh thread starts. Called once we have a
+/// thread ID for a session that already has a buffered objective.
+pub fn flush_pending_codex_goal(app: &AppHandle, session_id: &str, thread_id: &str) {
+    let goal =
+        super::storage::with_existing_metadata_mut(app, session_id, |meta| meta.codex_goal.clone())
+            .ok()
+            .flatten();
+    let Some(objective) = goal else { return };
+    let params = serde_json::json!({ "threadId": thread_id, "goal": objective });
+    if let Err(e) = super::codex_server::send_request("thread/goal/set", params) {
+        log::warn!("Failed to flush buffered codex goal: {e}");
+    }
+}
+
+/// Persist the goal on the session metadata and broadcast cache invalidation.
+pub(crate) fn persist_codex_goal(
+    app: &AppHandle,
+    worktree_id: &str,
+    worktree_path: &str,
+    session_id: &str,
+    goal: Option<String>,
+) -> Result<(), String> {
+    super::storage::with_sessions_mut(app, worktree_path, worktree_id, |sessions| {
+        if let Some(session) = sessions.find_session_mut(session_id) {
+            session.codex_goal = goal.clone();
+        }
+        Ok(())
+    })?;
+    let _ = app.emit_all(
+        "chat:codex_goal",
+        &CodexGoalEvent {
+            session_id: session_id.to_string(),
+            worktree_id: worktree_id.to_string(),
+            goal,
+        },
+    );
+    Ok(())
+}
+
+#[derive(serde::Serialize, Clone)]
+struct CodexGoalEvent {
+    session_id: String,
+    worktree_id: String,
+    goal: Option<String>,
 }
 
 /// Cancel a running Claude chat request for a session
@@ -4905,7 +5065,7 @@ fn execute_summarization_claude(
     magic_backend: Option<&str>,
     reasoning_effort: Option<&str>,
 ) -> Result<ContextSummaryResponse, String> {
-    let model_str = model.unwrap_or("claude-opus-4-7");
+    let model_str = model.unwrap_or("claude-opus-4-7[1m]");
 
     // Per-operation backend > project/global default_backend
     let backend = resolve_magic_prompt_backend(app, magic_backend, worktree_id);
@@ -5412,7 +5572,8 @@ pub async fn resume_session(
 
         // === Codex crash recovery path ===
         if let Some(ref codex_tid) = run.codex_thread_id {
-            let had_active_turn = run.codex_turn_id.is_some();
+            let codex_turn_id = run.codex_turn_id.clone();
+            let had_active_turn = codex_turn_id.is_some();
             log::trace!(
                 "Resuming Codex run: {run_id}, thread={codex_tid}, had_active_turn={had_active_turn}"
             );
@@ -5446,20 +5607,15 @@ pub async fn resume_session(
                     &worktree_id_clone,
                     &run_id_clone,
                     &thread_id_clone,
-                    had_active_turn,
+                    codex_turn_id.as_deref(),
                 ) {
                     Ok(true) => {
                         log::info!(
                             "Codex crash recovery succeeded for session {session_id_clone}, run {run_id_clone}"
                         );
-                        // process_turn_events (if active turn) or
-                        // resume_codex_after_crash (if idle) already emitted
-                        // chat:done, so only emit here for non-active-turn
-                        // paths where the function handled completion internally.
-                        if !had_active_turn {
-                            emit_done(&app_clone, &session_id_clone, &worktree_id_clone);
-                        }
-                        // For active turns, process_turn_events emits chat:done.
+                        // process_turn_events (active turn) or
+                        // resume_codex_after_crash (idle/interrupted turn)
+                        // emits chat:done itself.
                     }
                     Ok(false) => {
                         // Thread expired — mark as crashed
@@ -5666,279 +5822,6 @@ pub async fn check_resumable_sessions(
     log::trace!("Found {} resumable session(s)", resumable.len());
 
     Ok(resumable)
-}
-
-// ============================================================================
-// Session Digest Commands (for context recall after switching)
-// ============================================================================
-
-/// JSON schema for session digest response
-const SESSION_DIGEST_SCHEMA: &str = r#"{"type":"object","properties":{"chat_summary":{"type":"string","description":"One sentence (max 100 chars) summarizing the overall chat goal and progress"},"last_action":{"type":"string","description":"One sentence (max 200 chars) describing what was just completed"}},"required":["chat_summary","last_action"],"additionalProperties":false}"#;
-
-/// Prompt template for session digest generation
-const SESSION_DIGEST_PROMPT: &str = r#"You are a summarization assistant. Your ONLY job is to summarize the following conversation transcript. Do NOT continue the conversation or take any actions. Just summarize.
-
-CONVERSATION TRANSCRIPT:
-{conversation}
-
-END OF TRANSCRIPT.
-
-Now provide a brief summary with exactly two fields:
-- chat_summary: One sentence (max 100 chars) describing the overall goal and current status
-- last_action: One sentence (max 200 chars) describing what was just completed in the last exchange"#;
-
-/// Response from session digest generation
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct SessionDigestResponse {
-    pub chat_summary: String,
-    pub last_action: String,
-}
-
-/// Execute one-shot Claude CLI call for session digest with JSON schema (non-streaming)
-fn execute_digest_claude(
-    app: &AppHandle,
-    prompt: &str,
-    model: &str,
-    custom_profile_name: Option<&str>,
-    working_dir: Option<&std::path::Path>,
-    worktree_id: Option<&str>,
-    magic_backend: Option<&str>,
-    reasoning_effort: Option<&str>,
-) -> Result<SessionDigestResponse, String> {
-    // Per-operation backend > project/global default_backend
-    let backend = resolve_magic_prompt_backend(app, magic_backend, worktree_id);
-
-    if backend == super::types::Backend::Opencode {
-        log::trace!("Executing one-shot OpenCode digest");
-        let json_str = super::opencode::execute_one_shot_opencode(
-            app,
-            prompt,
-            model,
-            Some(SESSION_DIGEST_SCHEMA),
-            working_dir,
-            reasoning_effort,
-        )?;
-        return serde_json::from_str(&json_str).map_err(|e| {
-            log::error!("Failed to parse OpenCode digest JSON: {e}, content: {json_str}");
-            format!("Failed to parse digest response: {e}")
-        });
-    }
-
-    if backend == super::types::Backend::Codex {
-        log::trace!("Executing one-shot Codex digest with output-schema");
-        let json_str = super::codex::execute_one_shot_codex(
-            app,
-            prompt,
-            model,
-            SESSION_DIGEST_SCHEMA,
-            working_dir,
-            reasoning_effort,
-        )?;
-        return serde_json::from_str(&json_str).map_err(|e| {
-            log::error!("Failed to parse Codex digest JSON: {e}, content: {json_str}");
-            format!("Failed to parse digest response: {e}")
-        });
-    }
-
-    if backend == super::types::Backend::Cursor {
-        log::trace!("Executing one-shot Cursor digest");
-        let json_str = super::cursor::execute_one_shot_cursor(app, prompt, model, working_dir)?;
-        return serde_json::from_str(&json_str).map_err(|e| {
-            log::error!("Failed to parse Cursor digest JSON: {e}, content: {json_str}");
-            format!("Failed to parse digest response: {e}")
-        });
-    }
-
-    let cli_path = resolve_cli_binary(app);
-    if !cli_path.exists() {
-        return Err("Claude CLI not installed".to_string());
-    }
-
-    log::trace!("Executing one-shot Claude digest with JSON schema");
-
-    let mut cmd = silent_command(&cli_path);
-    crate::chat::claude::apply_custom_profile_settings(&mut cmd, custom_profile_name);
-    cmd.args([
-        "--print",
-        "--input-format",
-        "stream-json",
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "--model",
-        model,
-        "--no-session-persistence",
-        "--max-turns",
-        "2", // Need 2 turns: one for thinking, one for structured output
-        "--json-schema",
-        SESSION_DIGEST_SCHEMA,
-        "--permission-mode",
-        "plan", // Read-only mode - don't allow any tool use
-    ]);
-
-    cmd.stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to spawn Claude CLI: {e}"))?;
-
-    // Write prompt to stdin as stream-json format
-    {
-        let stdin = child.stdin.as_mut().ok_or("Failed to open stdin")?;
-        let input_message = serde_json::json!({
-            "type": "user",
-            "message": {
-                "role": "user",
-                "content": prompt
-            }
-        });
-        writeln!(stdin, "{input_message}").map_err(|e| format!("Failed to write to stdin: {e}"))?;
-    }
-
-    let output = child
-        .wait_with_output()
-        .map_err(|e| format!("Failed to wait for Claude CLI: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        return Err(format!(
-            "Claude CLI failed (exit code {:?}): stderr={}, stdout={}",
-            output.status.code(),
-            stderr.trim(),
-            stdout.trim()
-        ));
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    log::trace!("Claude CLI stdout: {stdout}");
-    log::trace!("Claude CLI stderr: {stderr}");
-
-    let text_content = extract_text_from_stream_json(&stdout)?;
-
-    log::trace!("Extracted text content for JSON parsing: {text_content}");
-
-    // Check for empty content before trying to parse
-    if text_content.trim().is_empty() {
-        log::error!(
-            "Empty content extracted from Claude response. stdout: {}, stderr: {}",
-            stdout,
-            stderr
-        );
-        return Err("Empty response from Claude CLI".to_string());
-    }
-
-    // Parse the JSON response
-    serde_json::from_str(&text_content).map_err(|e| {
-        let preview = if text_content.len() > 200 {
-            format!("{}...", &text_content[..200])
-        } else {
-            text_content.to_string()
-        };
-        log::error!(
-            "Failed to parse JSON response: {e}, content preview: {preview}, full stdout: {stdout}"
-        );
-        format!("Failed to parse structured response: {e}")
-    })
-}
-
-/// Generate a brief digest of a session for context recall
-///
-/// This command is called when a user opens a session that had activity while
-/// it was out of focus. It generates a short summary to help the user recall
-/// what was happening in the session.
-#[tauri::command]
-pub async fn generate_session_digest(
-    app: AppHandle,
-    session_id: String,
-) -> Result<SessionDigest, String> {
-    log::trace!("Generating digest for session {}", session_id);
-
-    // Load preferences to get model
-    let prefs = crate::load_preferences(app.clone())
-        .await
-        .map_err(|e| format!("Failed to load preferences: {e}"))?;
-
-    // Load messages from session
-    let messages = run_log::load_session_messages(&app, &session_id)?;
-
-    if messages.len() < 2 {
-        return Err("Session has too few messages for digest".to_string());
-    }
-
-    // Format messages into conversation history (reuse existing function)
-    let conversation_history = format_messages_for_summary(&messages);
-
-    // Build digest prompt (use custom magic prompt if set, otherwise default)
-    let prompt_template = prefs
-        .magic_prompts
-        .session_recap
-        .as_deref()
-        .filter(|p| !p.trim().is_empty())
-        .unwrap_or(SESSION_DIGEST_PROMPT);
-    let prompt = prompt_template.replace("{conversation}", &conversation_history);
-
-    // Use magic prompt model/provider/backend
-    let model = &prefs.magic_prompt_models.session_recap_model;
-    let provider = prefs
-        .magic_prompt_providers
-        .session_recap_provider
-        .as_deref();
-    let magic_backend = prefs.magic_prompt_backends.session_recap_backend.as_deref();
-    let effort = prefs.magic_prompt_efforts.session_recap_effort.as_deref();
-
-    // Call Claude CLI with JSON schema (non-streaming)
-    let response = execute_digest_claude(
-        &app,
-        &prompt,
-        model,
-        provider,
-        None,
-        None,
-        magic_backend,
-        effort,
-    )?;
-
-    Ok(SessionDigest {
-        chat_summary: response.chat_summary,
-        last_action: response.last_action,
-        created_at: Some(
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
-        ),
-        message_count: Some(messages.len()),
-    })
-}
-
-/// Update a session's persisted digest
-///
-/// Called after generating a digest to persist it to disk so it survives app reload.
-#[tauri::command]
-pub async fn update_session_digest(
-    app: AppHandle,
-    session_id: String,
-    digest: SessionDigest,
-) -> Result<(), String> {
-    log::trace!("Persisting digest for session {session_id}");
-
-    // Load existing metadata
-    let metadata = load_metadata(&app, &session_id)?
-        .ok_or_else(|| format!("Session {session_id} not found"))?;
-
-    // Update and save with new digest
-    let mut updated = metadata;
-    updated.digest = Some(digest);
-
-    super::storage::save_metadata(&app, &updated)?;
-
-    log::trace!("Digest persisted for session {session_id}");
-    Ok(())
 }
 
 /// Broadcast a session setting change to all connected clients.

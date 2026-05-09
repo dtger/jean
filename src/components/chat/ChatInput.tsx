@@ -28,6 +28,15 @@ import type { WorktreeFile } from '@/types/chat'
 import { SlashPopover, type SlashPopoverHandle } from './SlashPopover'
 import { processAttachmentFile } from './attachment-processing'
 import { IMAGE_ATTACHMENT_ACCEPT, MAX_TEXT_SIZE } from './image-constants'
+import {
+  listControlChars,
+  sanitizeTextInputValue,
+} from '@/lib/input-sanitization'
+import {
+  decodePromptAttachmentMetadata,
+  parsePlainTextPromptMetadata,
+  type PromptAttachmentMetadata,
+} from './message-content-utils'
 
 /** Threshold for saving pasted text as file (2000 chars) */
 const TEXT_PASTE_THRESHOLD = 2000
@@ -49,6 +58,7 @@ interface ChatInputProps {
   formRef: React.RefObject<HTMLFormElement | null>
   inputRef: React.RefObject<HTMLTextAreaElement | null>
   installedBackends?: CliBackend[]
+  selectedBackend?: CliBackend
 }
 
 export const ChatInput = memo(function ChatInput({
@@ -68,6 +78,7 @@ export const ChatInput = memo(function ChatInput({
   formRef,
   inputRef,
   installedBackends,
+  selectedBackend,
 }: ChatInputProps) {
   const isMobile = useIsMobile()
   const resizeTextarea = useAutoResize(inputRef)
@@ -215,7 +226,24 @@ export const ChatInput = memo(function ChatInput({
   // Handle textarea value changes
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      const value = e.target.value
+      const raw = e.target.value
+      const value = sanitizeTextInputValue(raw)
+
+      // If sanitization stripped chars, write back to DOM and clamp cursor
+      if (value !== raw) {
+        const removed = raw.length - value.length
+        const cursor = Math.max(
+          0,
+          (e.target.selectionStart ?? raw.length) - removed
+        )
+        e.target.value = value
+        e.target.setSelectionRange(cursor, cursor)
+        console.warn(
+          '[ChatInput] Stripped control chars from input:',
+          listControlChars(raw)
+        )
+      }
+
       if (!activeSessionId) return
 
       // PERFORMANCE: Update ref only, no React render
@@ -492,98 +520,94 @@ export const ChatInput = memo(function ChatInput({
 
       // Check for jean-prompt clipboard format (copied from a sent message)
       const html = e.clipboardData?.getData('text/html')
+      const plainText = e.clipboardData?.getData('text/plain') ?? ''
+      let copiedPromptMetadata: PromptAttachmentMetadata | null = null
+      let copiedPromptText = plainText
       if (html) {
         const match = html.match(/data-jean-prompt="([^"]+)"/)
         if (match?.[1]) {
-          // Read text synchronously before preventDefault - clipboardData
-          // is only available during the event handler, not after await
-          const text = e.clipboardData?.getData('text/plain') ?? ''
-          e.preventDefault()
-          try {
-            const metadata = JSON.parse(decodeURIComponent(match[1])) as {
-              images?: string[]
-              textFiles?: string[]
-              files?: string[]
-              skills?: { name: string; path: string }[]
-            }
-
-            // Insert the plain text into the textarea first
-            if (text && inputRef.current) {
-              const textarea = inputRef.current
-              const start = textarea.selectionStart
-              const end = textarea.selectionEnd
-              const current = textarea.value
-              textarea.value =
-                current.slice(0, start) + text + current.slice(end)
-              valueRef.current = textarea.value
-              textarea.selectionStart = textarea.selectionEnd =
-                start + text.length
-              // Save draft
-              useChatStore
-                .getState()
-                .setInputDraft(activeSessionId, textarea.value)
-              onHasValueChangeRef.current?.(Boolean(textarea.value.trim()))
-              resizeTextarea()
-            }
-
-            const {
-              addPendingImage,
-              addPendingFile,
-              addPendingSkill,
-              addPendingTextFile,
-            } = useChatStore.getState()
-
-            // Restore images (they already exist on disk)
-            for (const path of metadata.images ?? []) {
-              addPendingImage(activeSessionId, {
-                id: generateId(),
-                path,
-                filename: getFilename(path),
-              })
-            }
-
-            // Restore text files (read content from disk)
-            for (const path of metadata.textFiles ?? []) {
-              try {
-                const response = await invoke<ReadTextResponse>(
-                  'read_pasted_text',
-                  { path }
-                )
-                addPendingTextFile(activeSessionId, {
-                  id: generateId(),
-                  path,
-                  filename: getFilename(path),
-                  size: response.size,
-                  content: response.content,
-                })
-              } catch {
-                // File may no longer exist, skip
-              }
-            }
-
-            // Restore file mentions
-            for (const path of metadata.files ?? []) {
-              addPendingFile(activeSessionId, {
-                id: generateId(),
-                relativePath: path,
-                extension: getExtension(path),
-                isDirectory: false,
-              })
-            }
-
-            // Restore skills
-            for (const skill of metadata.skills ?? []) {
-              addPendingSkill(activeSessionId, {
-                id: generateId(),
-                name: skill.name,
-                path: skill.path,
-              })
-            }
-          } catch {
-            // Invalid JSON, fall through to normal paste
-          }
-          return
+          copiedPromptMetadata = decodePromptAttachmentMetadata(match[1])
         }
+      }
+      if (!copiedPromptMetadata && plainText) {
+        const parsed = parsePlainTextPromptMetadata(plainText)
+        copiedPromptMetadata = parsed.metadata
+        copiedPromptText = parsed.text
+      }
+      if (copiedPromptMetadata) {
+        e.preventDefault()
+
+        // Insert the plain text into the textarea first.
+        const cleanText = sanitizeTextInputValue(copiedPromptText)
+        if (cleanText && inputRef.current) {
+          const textarea = inputRef.current
+          const start = textarea.selectionStart
+          const end = textarea.selectionEnd
+          const current = textarea.value
+          textarea.value =
+            current.slice(0, start) + cleanText + current.slice(end)
+          valueRef.current = textarea.value
+          textarea.selectionStart = textarea.selectionEnd =
+            start + cleanText.length
+          useChatStore.getState().setInputDraft(activeSessionId, textarea.value)
+          onHasValueChangeRef.current?.(Boolean(textarea.value.trim()))
+          resizeTextarea()
+        }
+
+        const {
+          addPendingImage,
+          addPendingFile,
+          addPendingSkill,
+          addPendingTextFile,
+        } = useChatStore.getState()
+
+        // Restore images (they already exist on disk)
+        for (const path of copiedPromptMetadata.images) {
+          addPendingImage(activeSessionId, {
+            id: generateId(),
+            path,
+            filename: getFilename(path),
+          })
+        }
+
+        // Restore text files (read content from disk)
+        for (const path of copiedPromptMetadata.textFiles) {
+          try {
+            const response = await invoke<ReadTextResponse>(
+              'read_pasted_text',
+              { path }
+            )
+            addPendingTextFile(activeSessionId, {
+              id: generateId(),
+              path,
+              filename: getFilename(path),
+              size: response.size,
+              content: response.content,
+            })
+          } catch {
+            // File may no longer exist, skip
+          }
+        }
+
+        // Restore file and directory mentions
+        for (const file of copiedPromptMetadata.files) {
+          addPendingFile(activeSessionId, {
+            id: generateId(),
+            relativePath: file.path,
+            extension: getExtension(file.path),
+            isDirectory: file.isDirectory,
+          })
+        }
+
+        // Restore skills
+        for (const skill of copiedPromptMetadata.skills) {
+          addPendingSkill(activeSessionId, {
+            id: generateId(),
+            name: skill.name,
+            path: skill.path,
+          })
+        }
+        return
       }
 
       const items = e.clipboardData?.items
@@ -607,7 +631,7 @@ export const ChatInput = memo(function ChatInput({
       if (hasImage) return
 
       // Native clipboard fallback (Linux/WebKitGTK doesn't expose image items via Web API)
-      const clipboardText = e.clipboardData?.getData('text/plain')
+      const clipboardText = plainText
       const clipboardHtml = e.clipboardData?.getData('text/html')
       if (!clipboardText && !clipboardHtml) {
         e.preventDefault()
@@ -855,6 +879,29 @@ export const ChatInput = memo(function ChatInput({
       // Cancel pending debounced save (it still has the old "/command" value)
       clearTimeout(debouncedSaveRef.current)
 
+      // Built-in `/goal` is not a command-template — it dispatches an
+      // app-server RPC. Insert "/goal " literal so the user types an
+      // objective; useMessageSending intercepts at submit.
+      if (command.path === '<built-in:codex-goal>') {
+        const literal = '/goal '
+        if (inputRef.current) {
+          inputRef.current.value = literal
+          inputRef.current.setSelectionRange(literal.length, literal.length)
+          inputRef.current.focus()
+          valueRef.current = literal
+        }
+        if (activeSessionId) {
+          useChatStore.getState().setInputDraft(activeSessionId, literal)
+        }
+        resizeTextarea()
+        setSlashPopoverOpen(false)
+        setSlashTriggerIndex(null)
+        setSlashQuery('')
+        setShowHint(false)
+        onHasValueChangeRef.current?.(true)
+        return
+      }
+
       // Clear input
       if (inputRef.current) {
         inputRef.current.value = ''
@@ -953,6 +1000,7 @@ export const ChatInput = memo(function ChatInput({
         worktreePath={activeWorktreePath}
         handleRef={slashPopoverHandleRef}
         installedBackends={installedBackends}
+        sessionBackend={selectedBackend}
       />
     </div>
   )

@@ -17,6 +17,7 @@ use super::types::{
 use crate::http_server::EmitExt;
 
 use std::collections::HashMap;
+use std::io::Write;
 
 // =============================================================================
 // Response type (same shape as ClaudeResponse)
@@ -401,10 +402,12 @@ fn emit_codex_plan_tool_call(
 // App-server param builders
 // =============================================================================
 
-/// Split "gpt-5.4-fast" → ("gpt-5.4", true). Only gpt-5.4-fast is recognised;
-/// older models that happened to end in `-fast` are left unchanged.
-fn split_fast_model(model: &str) -> (&str, bool) {
+/// Split "gpt-5.5-fast" → ("gpt-5.5", true). Fast tier supported on
+/// gpt-5.5 and gpt-5.4 family; older models that happened to end in
+/// `-fast` are left unchanged.
+pub(crate) fn split_fast_model(model: &str) -> (&str, bool) {
     match model {
+        "gpt-5.5-fast" => ("gpt-5.5", true),
         "gpt-5.4-fast" => ("gpt-5.4", true),
         "gpt-5.4-mini-fast" => ("gpt-5.4-mini", true),
         other => (other.strip_suffix("-fast").unwrap_or(other), false),
@@ -441,13 +444,17 @@ pub fn build_thread_start_params(
         }
     }
 
-    // Permission mode mapping
+    // Permission mode mapping.
     //
-    // Always use granular approval policy with mcp_elicitations=false to
+    // Plan mode must never ask the user for permissions. It is read-only, so
+    // any attempted writes or denied commands should fail/decline rather than
+    // surfacing an approval prompt.
+    //
+    // Build mode uses granular approval policy with mcp_elicitations=false to
     // auto-approve MCP elicitation requests (matching Claude Code's behavior).
     // Codex reads MCP config from TOML files directly, so we can't detect
     // whether MCP servers are configured — but setting mcp_elicitations=false
-    // is a no-op when no MCP servers exist, so it's safe to always use it.
+    // is a no-op when no MCP servers exist, so it's safe to use in build mode.
     match execution_mode.unwrap_or("plan") {
         "build" => {
             params["approvalPolicy"] = serde_json::json!({
@@ -466,14 +473,7 @@ pub fn build_thread_start_params(
         }
         // "plan" or default: read-only sandbox
         _ => {
-            params["approvalPolicy"] = serde_json::json!({
-                "granular": {
-                    "mcp_elicitations": false,
-                    "sandbox_approval": true,
-                    "rules": true,
-                    "request_permissions": true,
-                }
-            });
+            params["approvalPolicy"] = serde_json::json!("never");
             params["sandbox"] = serde_json::json!("read-only");
         }
     }
@@ -541,29 +541,27 @@ pub fn build_turn_start_params(
     // in ALL modes, and writable roots only in build/yolo modes.
     // Also include git metadata dirs so worktree commits work (issue #280).
     let mode = execution_mode.unwrap_or("plan");
-    if !add_dirs.is_empty() || !git_writable_roots.is_empty() {
-        let is_writable = mode == "build" || mode == "yolo";
-        let writable_roots: Vec<serde_json::Value> = if is_writable {
-            let mut roots = vec![serde_json::json!(working_dir.to_string_lossy())];
-            for dir in add_dirs {
-                roots.push(serde_json::json!(dir));
-            }
-            for dir in git_writable_roots {
-                roots.push(serde_json::json!(dir));
-            }
-            roots
-        } else {
-            vec![]
-        };
-        params["sandboxPolicy"] = serde_json::json!({
-            "type": if is_writable { "workspaceWrite" } else { "readOnly" },
-            "writableRoots": writable_roots,
-            "readOnlyAccess": { "type": "fullAccess" },
-            "networkAccess": true,
-            "excludeTmpdirEnvVar": false,
-            "excludeSlashTmp": false,
-        });
-    }
+    let is_writable = mode == "build" || mode == "yolo";
+    let writable_roots: Vec<serde_json::Value> = if is_writable {
+        let mut roots = vec![serde_json::json!(working_dir.to_string_lossy())];
+        for dir in add_dirs {
+            roots.push(serde_json::json!(dir));
+        }
+        for dir in git_writable_roots {
+            roots.push(serde_json::json!(dir));
+        }
+        roots
+    } else {
+        vec![]
+    };
+    params["sandboxPolicy"] = serde_json::json!({
+        "type": if is_writable { "workspaceWrite" } else { "readOnly" },
+        "writableRoots": writable_roots,
+        "readOnlyAccess": { "type": "fullAccess" },
+        "networkAccess": true,
+        "excludeTmpdirEnvVar": false,
+        "excludeSlashTmp": false,
+    });
 
     // Override cwd per turn
     params["cwd"] = serde_json::json!(working_dir.to_string_lossy());
@@ -700,6 +698,11 @@ pub fn execute_codex_via_server(
         }
     }
 
+    // If user set a `/goal` before the first turn, flush it to the server now
+    // that we have a real thread id. No-op when the session has no buffered
+    // goal or when this is a resume (the server already knows the goal).
+    super::commands::flush_pending_codex_goal(app, session_id, &thread_id);
+
     // Build turn params
     let turn_params = build_turn_start_params(
         &thread_id,
@@ -744,6 +747,8 @@ pub fn execute_codex_via_server(
         is_plan_mode,
         is_build_mode,
         &event_rx,
+        None,
+        None,
     );
     super::decrement_tailer_count();
 
@@ -767,6 +772,183 @@ pub fn execute_codex_via_server(
     Ok(resp)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CodexResumeDisposition {
+    Active,
+    Idle,
+    Failed,
+    Interrupted,
+}
+
+fn codex_thread_status_type(response: &serde_json::Value) -> Option<&str> {
+    response
+        .get("thread")
+        .and_then(|thread| thread.get("status"))
+        .and_then(|status| status.get("type"))
+        .and_then(|value| value.as_str())
+}
+
+fn codex_thread_turns(response: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
+    response
+        .get("thread")
+        .and_then(|thread| thread.get("turns"))
+        .and_then(|turns| turns.as_array())
+}
+
+fn select_codex_recovery_turn<'a>(
+    response: &'a serde_json::Value,
+    preferred_turn_id: Option<&str>,
+) -> Option<&'a serde_json::Value> {
+    let turns = codex_thread_turns(response)?;
+    if let Some(preferred) = preferred_turn_id.filter(|id| !id.is_empty()) {
+        if let Some(turn) = turns
+            .iter()
+            .find(|turn| turn.get("id").and_then(|value| value.as_str()) == Some(preferred))
+        {
+            return Some(turn);
+        }
+    }
+    turns.last()
+}
+
+fn codex_turn_status(turn: &serde_json::Value) -> Option<&str> {
+    turn.get("status").and_then(|value| value.as_str())
+}
+
+fn classify_codex_resume(
+    response: &serde_json::Value,
+    preferred_turn_id: Option<&str>,
+    had_active_turn: bool,
+) -> CodexResumeDisposition {
+    let thread_status = codex_thread_status_type(response);
+    let turn_status =
+        select_codex_recovery_turn(response, preferred_turn_id).and_then(codex_turn_status);
+
+    match turn_status {
+        Some("failed") => CodexResumeDisposition::Failed,
+        Some("interrupted") => CodexResumeDisposition::Interrupted,
+        Some("inProgress") => CodexResumeDisposition::Active,
+        Some("completed") => CodexResumeDisposition::Idle,
+        _ if had_active_turn && thread_status == Some("active") => CodexResumeDisposition::Active,
+        _ => CodexResumeDisposition::Idle,
+    }
+}
+
+fn codex_turn_error_message(turn: &serde_json::Value) -> Option<String> {
+    let error = turn.get("error")?;
+    error
+        .get("message")
+        .and_then(|value| value.as_str())
+        .or_else(|| error.as_str())
+        .map(ToOwned::to_owned)
+}
+
+fn codex_thread_snapshot_history_lines(
+    response: &serde_json::Value,
+    preferred_turn_id: Option<&str>,
+    include_result_marker: bool,
+) -> Vec<String> {
+    let Some(turn) = select_codex_recovery_turn(response, preferred_turn_id) else {
+        return Vec::new();
+    };
+
+    let mut lines = Vec::new();
+    if let Some(items) = turn.get("items").and_then(|value| value.as_array()) {
+        for item in items {
+            let normalized = normalize_item_types(item);
+            let item_type = normalized
+                .get("type")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+
+            // User messages are represented by RunEntry.user_message in Jean.
+            if item_type == "user_message" || item_type == "hook_prompt" {
+                continue;
+            }
+
+            let started = serde_json::json!({
+                "type": "item.started",
+                "item": normalized,
+            });
+            if let Ok(line) = serde_json::to_string(&started) {
+                lines.push(line);
+            }
+
+            let completed = serde_json::json!({
+                "type": "item.completed",
+                "item": normalized,
+            });
+            if let Ok(line) = serde_json::to_string(&completed) {
+                lines.push(line);
+            }
+        }
+    }
+
+    match codex_turn_status(turn) {
+        Some("failed") => {
+            let failed = serde_json::json!({
+                "type": "turn.failed",
+                "error": turn.get("error").cloned().unwrap_or(serde_json::Value::Null),
+            });
+            if let Ok(line) = serde_json::to_string(&failed) {
+                lines.push(line);
+            }
+        }
+        Some("completed") if include_result_marker => {
+            lines.push(r#"{"type":"result"}"#.to_string());
+        }
+        _ => {}
+    }
+
+    lines
+}
+
+fn append_codex_thread_snapshot_to_history_file(
+    output_file: &std::path::Path,
+    response: &serde_json::Value,
+    preferred_turn_id: Option<&str>,
+    include_result_marker: bool,
+) -> Result<(), String> {
+    let lines =
+        codex_thread_snapshot_history_lines(response, preferred_turn_id, include_result_marker);
+    if lines.is_empty() {
+        return Ok(());
+    }
+
+    let existing = std::fs::read_to_string(output_file).unwrap_or_default();
+    let existing_lines: std::collections::HashSet<&str> = existing.lines().map(str::trim).collect();
+
+    let mut writer = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(output_file)
+        .map_err(|e| format!("Failed to open Codex recovery history: {e}"))?;
+
+    for line in lines {
+        if existing_lines.contains(line.as_str()) {
+            continue;
+        }
+        writeln!(writer, "{line}")
+            .map_err(|e| format!("Failed to append Codex recovery history: {e}"))?;
+    }
+    writer
+        .flush()
+        .map_err(|e| format!("Failed to flush Codex recovery history: {e}"))?;
+
+    Ok(())
+}
+
+fn emit_codex_done(app: &tauri::AppHandle, session_id: &str, worktree_id: &str) {
+    let _ = app.emit_all(
+        "chat:done",
+        &DoneEvent {
+            session_id: session_id.to_string(),
+            worktree_id: worktree_id.to_string(),
+            waiting_for_plan: false,
+        },
+    );
+}
+
 /// Resume a Codex session after Jean crashed.
 ///
 /// Spawns a new app-server (if needed), calls `thread/resume` to reconnect
@@ -782,11 +964,13 @@ pub fn resume_codex_after_crash(
     worktree_id: &str,
     run_id: &str,
     thread_id: &str,
-    had_active_turn: bool,
+    codex_turn_id: Option<&str>,
 ) -> Result<bool, String> {
     use super::codex_server;
     use super::run_log::RunLogWriter;
     use super::storage::get_session_dir;
+
+    let had_active_turn = codex_turn_id.is_some();
 
     log::info!(
         "Codex crash recovery: session={session_id}, thread={thread_id}, had_active_turn={had_active_turn}"
@@ -808,19 +992,14 @@ pub fn resume_codex_after_crash(
             // Thread gone/expired — cannot recover
             log::warn!("Codex crash recovery: thread/resume failed for {thread_id}: {e}");
             codex_server::decrement_usage_count();
-            return Ok(false);
+            Ok(false)
         }
         Ok(response) => {
             log::trace!("Codex crash recovery: thread/resume succeeded for {thread_id}");
 
-            // Check thread status from response
-            let thread_status = response
-                .get("thread")
-                .and_then(|t| t.get("status"))
-                .and_then(|s| s.as_str())
-                .unwrap_or("unknown");
+            let disposition = classify_codex_resume(&response, codex_turn_id, had_active_turn);
 
-            if had_active_turn && thread_status != "completed" {
+            if disposition == CodexResumeDisposition::Active {
                 // Turn was in-flight when Jean crashed and thread is still active.
                 // Register for events and enter the event loop to stream remaining output.
                 let session_dir = get_session_dir(app, session_id)?;
@@ -836,7 +1015,7 @@ pub fn resume_codex_after_crash(
                 super::registry::register_codex_turn(
                     session_id.to_string(),
                     thread_id.to_string(),
-                    String::new(),
+                    codex_turn_id.unwrap_or_default().to_string(),
                 );
 
                 // Determine execution mode from run metadata (single load)
@@ -860,6 +1039,8 @@ pub fn resume_codex_after_crash(
                     is_plan_mode,
                     is_build_mode,
                     &event_rx,
+                    Some(std::time::Duration::from_secs(15)),
+                    codex_turn_id,
                 );
                 super::decrement_tailer_count();
 
@@ -876,7 +1057,19 @@ pub fn resume_codex_after_crash(
                 // Complete the run
                 if let Ok(mut writer) = RunLogWriter::resume(app, session_id, run_id) {
                     let assistant_message_id = uuid::Uuid::new_v4().to_string();
-                    if let Err(e) = writer.complete(&assistant_message_id, None, response.usage) {
+                    if response.error_emitted {
+                        if let Err(e) = writer.crash() {
+                            log::error!(
+                                "Failed to mark Codex run crashed after recovery error: {e}"
+                            );
+                        }
+                    } else if response.cancelled {
+                        if let Err(e) = writer.cancel(Some(&assistant_message_id), None) {
+                            log::error!("Failed to cancel run after Codex crash recovery: {e}");
+                        }
+                    } else if let Err(e) =
+                        writer.complete(&assistant_message_id, None, response.usage)
+                    {
                         log::error!("Failed to complete run after crash recovery: {e}");
                     }
                 }
@@ -888,9 +1081,54 @@ pub fn resume_codex_after_crash(
             // The JSONL file may already have the result from before the crash.
             // Mark the run as completed (the JSONL output is the source of truth).
             codex_server::decrement_usage_count();
+            let session_dir = get_session_dir(app, session_id)?;
+            let output_file = session_dir.join(format!("{run_id}.jsonl"));
 
             // Check if the JSONL file has a result line (turn completed before crash)
             let has_result = super::run_log::jsonl_has_result_line(app, session_id, run_id);
+
+            if !has_result {
+                if let Err(e) = append_codex_thread_snapshot_to_history_file(
+                    &output_file,
+                    &response,
+                    codex_turn_id,
+                    disposition == CodexResumeDisposition::Idle,
+                ) {
+                    log::warn!("Failed to append Codex recovery snapshot: {e}");
+                }
+            }
+
+            if disposition == CodexResumeDisposition::Failed {
+                if let Some(turn) = select_codex_recovery_turn(&response, codex_turn_id) {
+                    let raw_error = codex_turn_error_message(turn)
+                        .unwrap_or_else(|| "Unknown Codex error".to_string());
+                    let _ = app.emit_all(
+                        "chat:error",
+                        &ErrorEvent {
+                            session_id: session_id.to_string(),
+                            worktree_id: worktree_id.to_string(),
+                            error: format_codex_user_error(&raw_error),
+                        },
+                    );
+                }
+                if let Ok(mut writer) = RunLogWriter::resume(app, session_id, run_id) {
+                    if let Err(e) = writer.crash() {
+                        log::error!("Failed to mark failed Codex run crashed during recovery: {e}");
+                    }
+                }
+                return Ok(true);
+            }
+
+            if disposition == CodexResumeDisposition::Interrupted {
+                if let Ok(mut writer) = RunLogWriter::resume(app, session_id, run_id) {
+                    let assistant_message_id = uuid::Uuid::new_v4().to_string();
+                    if let Err(e) = writer.cancel(Some(&assistant_message_id), None) {
+                        log::error!("Failed to cancel interrupted Codex run during recovery: {e}");
+                    }
+                }
+                emit_codex_done(app, session_id, worktree_id);
+                return Ok(true);
+            }
 
             if has_result {
                 log::trace!("Codex crash recovery: run {run_id} already has result in JSONL");
@@ -901,11 +1139,11 @@ pub fn resume_codex_after_crash(
                         log::error!("Failed to complete run during crash recovery: {e}");
                     }
                 }
+                emit_codex_done(app, session_id, worktree_id);
                 return Ok(true);
             }
 
-            // No result in JSONL — turn may have completed on the server side
-            // but events weren't written. Mark as completed with empty content.
+            // No result in JSONL — thread/turn data from app-server was written above.
             log::trace!("Codex crash recovery: thread idle, marking run {run_id} as completed");
             if let Ok(mut writer) = RunLogWriter::resume(app, session_id, run_id) {
                 let assistant_message_id = uuid::Uuid::new_v4().to_string();
@@ -913,7 +1151,8 @@ pub fn resume_codex_after_crash(
                     log::error!("Failed to complete run during crash recovery: {e}");
                 }
             }
-            return Ok(true);
+            emit_codex_done(app, session_id, worktree_id);
+            Ok(true)
         }
     }
 }
@@ -964,6 +1203,8 @@ fn process_turn_events(
     is_plan_mode: bool,
     is_build_mode: bool,
     event_rx: &std::sync::mpsc::Receiver<super::codex_server::ServerEvent>,
+    status_poll_interval: Option<std::time::Duration>,
+    recovery_turn_id: Option<&str>,
 ) -> CodexResponse {
     use super::codex_server::ServerEvent;
     use std::io::Write;
@@ -987,13 +1228,87 @@ fn process_turn_events(
         .ok();
 
     'outer: loop {
-        let event = match event_rx.recv() {
-            Ok(e) => e,
-            Err(_) => {
-                log::warn!("Event channel disconnected for session {session_id}");
-                cancelled = true;
-                break 'outer;
-            }
+        let event = match status_poll_interval {
+            Some(interval) => match event_rx.recv_timeout(interval) {
+                Ok(e) => e,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    let snapshot = super::codex_server::send_request(
+                        "thread/read",
+                        serde_json::json!({
+                            "threadId": thread_id,
+                            "includeTurns": true,
+                        }),
+                    );
+                    match snapshot {
+                        Ok(snapshot) => {
+                            let disposition =
+                                classify_codex_resume(&snapshot, recovery_turn_id, true);
+                            if disposition == CodexResumeDisposition::Active {
+                                continue;
+                            }
+
+                            if let Some(ref mut writer) = output_writer {
+                                let _ = writer.flush();
+                            }
+                            if let Err(e) = append_codex_thread_snapshot_to_history_file(
+                                output_file,
+                                &snapshot,
+                                recovery_turn_id,
+                                false,
+                            ) {
+                                log::warn!("Failed to append Codex snapshot after idle poll: {e}");
+                            }
+
+                            match disposition {
+                                CodexResumeDisposition::Failed => {
+                                    if let Some(turn) =
+                                        select_codex_recovery_turn(&snapshot, recovery_turn_id)
+                                    {
+                                        let raw_error = codex_turn_error_message(turn)
+                                            .unwrap_or_else(|| "Unknown Codex error".to_string());
+                                        let _ = app.emit_all(
+                                            "chat:error",
+                                            &ErrorEvent {
+                                                session_id: session_id.to_string(),
+                                                worktree_id: worktree_id.to_string(),
+                                                error: format_codex_user_error(&raw_error),
+                                            },
+                                        );
+                                    }
+                                    error_emitted = true;
+                                    break 'outer;
+                                }
+                                CodexResumeDisposition::Interrupted => {
+                                    cancelled = true;
+                                    server_interrupted = true;
+                                    break 'outer;
+                                }
+                                CodexResumeDisposition::Idle => {
+                                    break 'outer;
+                                }
+                                CodexResumeDisposition::Active => unreachable!(),
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("Codex recovery status poll failed: {e}");
+                            continue;
+                        }
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    log::warn!("Event channel disconnected for session {session_id}");
+                    cancelled = true;
+                    break 'outer;
+                }
+            },
+            None => match event_rx.recv() {
+                Ok(e) => e,
+                Err(_) => {
+                    log::warn!("Event channel disconnected for session {session_id}");
+                    cancelled = true;
+                    break 'outer;
+                }
+            },
         };
 
         match event {
@@ -1574,6 +1889,24 @@ fn process_server_notification(
             *completed = true;
             log::trace!("Codex turn completed for session: {session_id}");
         }
+        "thread/goal/updated" => {
+            let goal = params
+                .get("goal")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            if let Err(e) =
+                super::commands::persist_codex_goal(app, worktree_id, "", session_id, goal)
+            {
+                log::warn!("Failed to persist codex goal update: {e}");
+            }
+        }
+        "thread/goal/cleared" => {
+            if let Err(e) =
+                super::commands::persist_codex_goal(app, worktree_id, "", session_id, None)
+            {
+                log::warn!("Failed to persist codex goal clear: {e}");
+            }
+        }
         "thread/tokenUsage/updated" => {
             // Extract usage data
             if let Some(token_usage) = params.get("tokenUsage") {
@@ -1734,6 +2067,20 @@ fn handle_approval_request(
                 .unwrap_or("")
                 .to_string();
 
+            if is_plan_mode {
+                log::trace!("Denying command approval in plan mode (rpc_id={rpc_id}): {command}");
+                if let Err(e) = super::codex_server::send_response(
+                    rpc_id,
+                    serde_json::json!({"decision": "decline"}),
+                ) {
+                    log::error!(
+                        "Failed to deny command approval in plan mode (rpc_id={rpc_id}): {e}"
+                    );
+                    emit_connection_error();
+                }
+                return;
+            }
+
             // Auto-approve embedded/resolved CLI binaries (matches Claude's --allowedTools)
             let gh_binary = crate::gh_cli::config::resolve_gh_binary(app);
             let gh_str = gh_binary.to_string_lossy();
@@ -1789,6 +2136,10 @@ fn handle_approval_request(
                 network_approval_context: params.get("networkApprovalContext").and_then(|value| {
                     serde_json::from_value::<CodexNetworkApprovalContext>(value.clone()).ok()
                 }),
+                additional_permissions: params.get("additionalPermissions").cloned(),
+                available_decisions: params.get("availableDecisions").and_then(|value| {
+                    serde_json::from_value::<Vec<serde_json::Value>>(value.clone()).ok()
+                }),
                 proposed_execpolicy_amendment: params
                     .get("proposedExecpolicyAmendment")
                     .and_then(|value| serde_json::from_value::<Vec<String>>(value.clone()).ok()),
@@ -1809,6 +2160,20 @@ fn handle_approval_request(
             );
         }
         "item/permissions/requestApproval" => {
+            if is_plan_mode {
+                log::trace!("Denying permissions request in plan mode (rpc_id={rpc_id})");
+                if let Err(e) = super::codex_server::send_response(
+                    rpc_id,
+                    serde_json::json!({"permissions": {}, "scope": "turn"}),
+                ) {
+                    log::error!(
+                        "Failed to deny permissions request in plan mode (rpc_id={rpc_id}): {e}"
+                    );
+                    emit_connection_error();
+                }
+                return;
+            }
+
             let request = CodexPermissionRequest {
                 rpc_id,
                 item_id: params
@@ -1820,6 +2185,10 @@ fn handle_approval_request(
                     .get("permissions")
                     .cloned()
                     .unwrap_or(serde_json::Value::Null),
+                cwd: params
+                    .get("cwd")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
                 reason: params
                     .get("reason")
                     .and_then(|v| v.as_str())
@@ -1887,6 +2256,10 @@ fn handle_approval_request(
                     .and_then(|v| v.as_str())
                     .unwrap_or_default()
                     .to_string(),
+                namespace: params
+                    .get("namespace")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
                 tool: params
                     .get("tool")
                     .and_then(|v| v.as_str())
@@ -1905,6 +2278,74 @@ fn handle_approval_request(
                     request,
                 },
             );
+        }
+        "account/chatgptAuthTokens/refresh" => {
+            let previous_account_id = params
+                .get("previousAccountId")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            let app = app.clone();
+            let session_id = session_id.to_string();
+            let worktree_id = worktree_id.to_string();
+            tauri::async_runtime::spawn(async move {
+                match crate::codex_cli::refresh_codex_app_server_auth_tokens(previous_account_id)
+                    .await
+                {
+                    Ok(tokens) => {
+                        let payload = match serde_json::to_value(tokens) {
+                            Ok(payload) => payload,
+                            Err(e) => {
+                                let error =
+                                    format!("Failed to serialize Codex auth refresh response: {e}");
+                                log::error!("{error}");
+                                if let Err(send_err) =
+                                    super::codex_server::send_error_response(rpc_id, -32000, &error)
+                                {
+                                    log::error!(
+                                        "Failed to send Codex auth refresh serialization error \
+                                         (rpc_id={rpc_id}): {send_err}"
+                                    );
+                                }
+                                return;
+                            }
+                        };
+                        if let Err(e) = super::codex_server::send_response(rpc_id, payload) {
+                            log::error!(
+                                "Failed to send Codex auth refresh response (rpc_id={rpc_id}): {e}"
+                            );
+                        }
+                    }
+                    Err(error) => {
+                        log::error!("Codex auth refresh request failed (rpc_id={rpc_id}): {error}");
+                        let _ = app.emit_all(
+                            "chat:error",
+                            &ErrorEvent {
+                                session_id,
+                                worktree_id,
+                                error: error.clone(),
+                            },
+                        );
+                        if let Err(e) =
+                            super::codex_server::send_error_response(rpc_id, -32000, &error)
+                        {
+                            log::error!(
+                                "Failed to send Codex auth refresh error (rpc_id={rpc_id}): {e}"
+                            );
+                        }
+                    }
+                }
+            });
+        }
+        "applyPatchApproval" | "execCommandApproval" => {
+            let error = format!(
+                "Deprecated Codex server request {method} is unsupported by Jean's current \
+                 app-server flow."
+            );
+            log::warn!("{error}");
+            if let Err(e) = super::codex_server::send_error_response(rpc_id, -32601, &error) {
+                log::error!("Failed to reject deprecated Codex request (rpc_id={rpc_id}): {e}");
+                emit_connection_error();
+            }
         }
         _ => {
             let error = format!("Unsupported Codex server request: {method}. Please update Jean.");
@@ -3344,6 +3785,138 @@ mod tests {
     use crate::chat::types::{RunEntry, RunStatus};
 
     #[test]
+    fn classify_codex_resume_reads_thread_status_object() {
+        let response = serde_json::json!({
+            "thread": {
+                "status": { "type": "active" },
+                "turns": [
+                    { "id": "turn-1", "status": "inProgress" }
+                ]
+            }
+        });
+
+        assert_eq!(
+            classify_codex_resume(&response, Some("turn-1"), true),
+            CodexResumeDisposition::Active
+        );
+    }
+
+    #[test]
+    fn classify_codex_resume_completed_turn_is_idle() {
+        let response = serde_json::json!({
+            "thread": {
+                "status": { "type": "idle" },
+                "turns": [
+                    { "id": "turn-1", "status": "completed" }
+                ]
+            }
+        });
+
+        assert_eq!(
+            classify_codex_resume(&response, Some("turn-1"), true),
+            CodexResumeDisposition::Idle
+        );
+    }
+
+    #[test]
+    fn classify_codex_resume_prefers_persisted_turn_status() {
+        let response = serde_json::json!({
+            "thread": {
+                "status": { "type": "active" },
+                "turns": [
+                    { "id": "old-turn", "status": "completed" },
+                    { "id": "new-turn", "status": "inProgress" }
+                ]
+            }
+        });
+
+        assert_eq!(
+            classify_codex_resume(&response, Some("old-turn"), true),
+            CodexResumeDisposition::Idle
+        );
+    }
+
+    #[test]
+    fn classify_codex_resume_detects_failed_and_interrupted_turns() {
+        let failed = serde_json::json!({
+            "thread": {
+                "status": { "type": "idle" },
+                "turns": [
+                    { "id": "turn-1", "status": "failed" }
+                ]
+            }
+        });
+        let interrupted = serde_json::json!({
+            "thread": {
+                "status": { "type": "idle" },
+                "turns": [
+                    { "id": "turn-1", "status": "interrupted" }
+                ]
+            }
+        });
+
+        assert_eq!(
+            classify_codex_resume(&failed, Some("turn-1"), true),
+            CodexResumeDisposition::Failed
+        );
+        assert_eq!(
+            classify_codex_resume(&interrupted, Some("turn-1"), true),
+            CodexResumeDisposition::Interrupted
+        );
+    }
+
+    #[test]
+    fn codex_thread_snapshot_history_lines_normalizes_and_skips_user_items() {
+        let response = serde_json::json!({
+            "thread": {
+                "status": { "type": "idle" },
+                "turns": [
+                    {
+                        "id": "turn-1",
+                        "status": "completed",
+                        "items": [
+                            {
+                                "id": "user-1",
+                                "type": "userMessage",
+                                "text": "prompt"
+                            },
+                            {
+                                "id": "cmd-1",
+                                "type": "commandExecution",
+                                "command": "rtk git status",
+                                "aggregatedOutput": "clean"
+                            },
+                            {
+                                "id": "msg-1",
+                                "type": "agentMessage",
+                                "text": "done"
+                            }
+                        ]
+                    }
+                ]
+            }
+        });
+
+        let lines = codex_thread_snapshot_history_lines(&response, Some("turn-1"), true);
+        assert_eq!(lines.len(), 5);
+        assert!(lines.iter().all(|line| !line.contains("userMessage")));
+        assert_eq!(
+            lines.last().map(String::as_str),
+            Some(r#"{"type":"result"}"#)
+        );
+
+        let first: serde_json::Value = serde_json::from_str(&lines[0]).expect("json line");
+        assert_eq!(first["type"], "item.started");
+        assert_eq!(first["item"]["type"], "command_execution");
+        assert_eq!(first["item"]["aggregated_output"], "clean");
+
+        let agent: serde_json::Value = serde_json::from_str(&lines[3]).expect("json line");
+        assert_eq!(agent["type"], "item.completed");
+        assert_eq!(agent["item"]["type"], "agent_message");
+        assert_eq!(agent["item"]["text"], "done");
+    }
+
+    #[test]
     fn gpt_5_4_fast_enables_fast_service_tier() {
         let params = build_thread_start_params(
             std::path::Path::new("/tmp"),
@@ -3356,6 +3929,26 @@ mod tests {
         );
         assert_eq!(params["model"], "gpt-5.4");
         assert_eq!(params["serviceTier"], "fast");
+    }
+
+    #[test]
+    fn gpt_5_5_fast_enables_fast_service_tier() {
+        let params = build_thread_start_params(
+            std::path::Path::new("/tmp"),
+            Some("gpt-5.5-fast"),
+            Some("plan"),
+            false,
+            None,
+            false,
+            None,
+        );
+        assert_eq!(params["model"], "gpt-5.5");
+        assert_eq!(params["serviceTier"], "fast");
+    }
+
+    #[test]
+    fn split_fast_model_recognises_gpt_5_5_fast() {
+        assert_eq!(split_fast_model("gpt-5.5-fast"), ("gpt-5.5", true));
     }
 
     #[test]
@@ -3418,7 +4011,7 @@ mod tests {
     }
 
     #[test]
-    fn plan_mode_uses_granular_approval_policy() {
+    fn plan_mode_uses_never_approval_policy_and_read_only_sandbox() {
         let params = build_thread_start_params(
             std::path::Path::new("/tmp"),
             Some("gpt-5.4"),
@@ -3428,11 +4021,46 @@ mod tests {
             false,
             None,
         );
-        let policy = &params["approvalPolicy"]["granular"];
-        assert_eq!(policy["mcp_elicitations"], false);
-        assert_eq!(policy["sandbox_approval"], true);
-        assert_eq!(policy["rules"], true);
-        assert_eq!(policy["request_permissions"], true);
+        assert_eq!(params["approvalPolicy"], "never");
+        assert_eq!(params["sandbox"], "read-only");
+    }
+
+    #[test]
+    fn plan_turn_always_uses_read_only_sandbox_policy() {
+        let params = build_turn_start_params(
+            "thread-1",
+            "hello",
+            std::path::Path::new("/tmp/worktree"),
+            Some("plan"),
+            None,
+            &[],
+            &[],
+        );
+        let policy = &params["sandboxPolicy"];
+        assert_eq!(policy["type"], "readOnly");
+        assert_eq!(policy["writableRoots"].as_array().unwrap().len(), 0);
+        assert_eq!(policy["readOnlyAccess"]["type"], "fullAccess");
+        assert_eq!(policy["networkAccess"], true);
+    }
+
+    #[test]
+    fn build_turn_uses_workspace_write_sandbox_policy() {
+        let params = build_turn_start_params(
+            "thread-1",
+            "hello",
+            std::path::Path::new("/tmp/worktree"),
+            Some("build"),
+            None,
+            &["/tmp/context".to_string()],
+            &["/tmp/git".to_string()],
+        );
+        let policy = &params["sandboxPolicy"];
+        assert_eq!(policy["type"], "workspaceWrite");
+        assert_eq!(
+            policy["writableRoots"],
+            serde_json::json!(["/tmp/worktree", "/tmp/context", "/tmp/git"])
+        );
+        assert_eq!(policy["readOnlyAccess"]["type"], "fullAccess");
     }
 
     #[test]

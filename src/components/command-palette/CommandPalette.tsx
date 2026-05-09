@@ -58,7 +58,7 @@ export function CommandPalette() {
       .map(project => ({
         id: `goto-project-${project.id}`,
         label: project.name,
-        description: 'Open project canvas',
+        description: 'Open',
         avatarUrl:
           project.avatar_path && appDataDir
             ? convertFileSrc(`${appDataDir}/${project.avatar_path}`)
@@ -161,7 +161,7 @@ export function CommandPalette() {
         value={search}
         onValueChange={setSearch}
       />
-      <CommandList>
+      <CommandList className="max-h-[70dvh] sm:max-h-[300px]">
         <CommandEmpty>No results found.</CommandEmpty>
 
         {/* Projects group first (near top) */}

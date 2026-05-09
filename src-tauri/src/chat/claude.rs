@@ -24,6 +24,7 @@ const DEFAULT_GLOBAL_SYSTEM_PROMPT: &str = "\
 - Write detailed specs upfront to reduce ambiguity\n\
 - Make the plan extremely concise. Sacrifice grammar for the sake of concision.\n\
 - At the end of each plan, give me a list of unresolved questions to answer, if any.\n\
+- In planning mode, present plans using the backend's native plan tool/UI call when available (Claude ExitPlanMode, Codex update_plan/CodexPlan, Cursor/OpenCode equivalent), not plain text only.\n\
 \n\
 ### 2. Documentation First\n\
 - Before designing or coding against any external library/framework/SDK/API/CLI, run WebSearch for current docs.\n\
@@ -511,8 +512,6 @@ fn build_claude_args(
         }
     }
 
-    // Explicit mode override for Claude so build/yolo do not fall back into plan mode
-    // due to the default global prompt.
     if let Some(mode_instruction) = execution_mode_instruction(execution_mode) {
         system_prompt_parts.push(mode_instruction.to_string());
     }
@@ -584,6 +583,9 @@ fn build_claude_args(
             ));
         }
     }
+
+    // End-of-turn recap instruction (compact view surfaces this block)
+    system_prompt_parts.push(super::RECAP_INSTRUCTION.to_string());
 
     // Collect all context files (issues and PRs) and concatenate into a single file
     let mut all_context_paths: Vec<std::path::PathBuf> = Vec::new();

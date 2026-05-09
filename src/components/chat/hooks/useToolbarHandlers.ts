@@ -205,7 +205,7 @@ export function useToolbarHandlers({
     (backend: 'claude' | 'codex' | 'pi' | 'opencode' | 'cursor') => {
       const model =
         backend === 'codex'
-          ? (preferences?.selected_codex_model ?? 'gpt-5.4')
+          ? (preferences?.selected_codex_model ?? 'gpt-5.5')
           : backend === 'pi'
             ? (preferences?.selected_pi_model ?? 'pi/openai/gpt-5.5')
             : backend === 'opencode'

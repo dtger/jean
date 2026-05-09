@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::AppHandle;
 
-use super::config::{ensure_cli_dir, get_cli_binary_path, resolve_cli_binary};
+use super::config::{ensure_cli_dir, get_cli_binary_path, get_cli_dir, resolve_cli_binary};
 use crate::gh_cli::resolve_github_api_token;
 use crate::http_server::EmitExt;
 use crate::platform::silent_command;
@@ -88,6 +88,15 @@ pub struct CodexUsageSnapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CodexAppServerAuthTokens {
+    pub access_token: String,
+    pub chatgpt_account_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chatgpt_plan_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct CodexUsageCacheEntry {
     cached_at: u64,
     snapshot: CodexUsageSnapshot,
@@ -164,6 +173,12 @@ struct CodexRefreshResponse {
     refresh_token: Option<String>,
     #[serde(default)]
     id_token: Option<String>,
+    #[serde(default)]
+    account_id: Option<String>,
+    #[serde(default)]
+    chatgpt_account_id: Option<String>,
+    #[serde(default)]
+    chatgpt_plan_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -614,7 +629,7 @@ async fn refresh_codex_access_token(
     client: &reqwest::Client,
     auth_source: &CodexAuthSource,
     auth: &mut CodexAuthFile,
-) -> Result<Option<String>, String> {
+) -> Result<Option<CodexRefreshResponse>, String> {
     let refresh_token = auth
         .tokens
         .as_ref()
@@ -683,10 +698,17 @@ async fn refresh_codex_access_token(
 
     let mut tokens = auth.tokens.clone().unwrap_or_default();
     tokens.access_token = Some(refreshed.access_token.clone());
-    if let Some(refresh_token) = refreshed.refresh_token {
+    if let Some(account_id) = refreshed
+        .chatgpt_account_id
+        .clone()
+        .or_else(|| refreshed.account_id.clone())
+    {
+        tokens.account_id = Some(account_id);
+    }
+    if let Some(refresh_token) = refreshed.refresh_token.clone() {
         tokens.refresh_token = Some(refresh_token);
     }
-    if let Some(id_token) = refreshed.id_token {
+    if let Some(id_token) = refreshed.id_token.clone() {
         tokens.id_token = Some(id_token);
     }
     auth.tokens = Some(tokens);
@@ -701,7 +723,39 @@ async fn refresh_codex_access_token(
         log::warn!("Codex token refresh succeeded but could not persist auth: {e}");
     }
 
-    Ok(auth.tokens.as_ref().and_then(|t| t.access_token.clone()))
+    Ok(Some(refreshed))
+}
+
+pub async fn refresh_codex_app_server_auth_tokens(
+    previous_account_id: Option<String>,
+) -> Result<CodexAppServerAuthTokens, String> {
+    let (auth_source, mut auth) = load_codex_auth()?;
+    let client = build_usage_client()?;
+    let refreshed = refresh_codex_access_token(&client, &auth_source, &mut auth).await?;
+    if refreshed.is_none() {
+        return Err("Codex token refresh failed.".to_string());
+    }
+
+    let access_token = auth
+        .tokens
+        .as_ref()
+        .and_then(|t| t.access_token.clone())
+        .ok_or_else(|| "Codex access token missing. Run `codex` to authenticate.".to_string())?;
+    let chatgpt_account_id = auth
+        .tokens
+        .as_ref()
+        .and_then(|t| t.account_id.clone())
+        .or(previous_account_id)
+        .ok_or_else(|| {
+            "Codex account id missing. Run `codex` to authenticate again.".to_string()
+        })?;
+    let chatgpt_plan_type = refreshed.and_then(|r| r.chatgpt_plan_type);
+
+    Ok(CodexAppServerAuthTokens {
+        access_token,
+        chatgpt_account_id,
+        chatgpt_plan_type,
+    })
 }
 
 /// Check if Codex CLI is installed and get its status
@@ -858,10 +912,11 @@ pub async fn get_codex_usage() -> Result<CodexUsageSnapshot, String> {
         .map_err(|e| format!("Failed to fetch Codex usage: {e}"))?;
 
     if response.status() == reqwest::StatusCode::UNAUTHORIZED {
-        if let Some(refreshed_token) =
+        if let Some(refreshed) =
             refresh_codex_access_token(&usage_client, &auth_source, &mut auth).await?
         {
-            access_token = refreshed_token;
+            access_token = refreshed.access_token;
+            let account_id = auth.tokens.as_ref().and_then(|t| t.account_id.clone());
             let mut retry_request = usage_client
                 .get(CODEX_USAGE_URL)
                 .bearer_auth(&access_token)
@@ -1397,6 +1452,30 @@ pub async fn install_codex_cli(app: AppHandle, version: Option<String>) -> Resul
     emit_progress(&app, "complete", "Installation complete!", 100);
 
     log::trace!("Codex CLI installed successfully at {:?}", binary_path);
+    Ok(())
+}
+
+/// Uninstall the Jean-managed Codex CLI by deleting its directory.
+///
+/// Refuses to run while any sessions are active. Idempotent.
+#[tauri::command]
+pub async fn uninstall_codex_cli(app: AppHandle) -> Result<(), String> {
+    let running_sessions = crate::chat::registry::get_running_sessions();
+    if !running_sessions.is_empty() {
+        let count = running_sessions.len();
+        return Err(format!(
+            "Cannot uninstall Codex CLI while {} {} running. Please stop all active sessions first.",
+            count,
+            if count == 1 { "session is" } else { "sessions are" }
+        ));
+    }
+
+    let cli_dir = get_cli_dir(&app)?;
+    if cli_dir.exists() {
+        std::fs::remove_dir_all(&cli_dir)
+            .map_err(|e| format!("Failed to remove Codex CLI directory: {e}"))?;
+        log::info!("Removed Jean-managed Codex CLI at {:?}", cli_dir);
+    }
     Ok(())
 }
 

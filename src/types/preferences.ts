@@ -55,8 +55,6 @@ export interface MagicPrompts {
   parallel_execution: string | null
   /** Global system prompt appended to every chat session (like ~/.claude/CLAUDE.md) */
   global_system_prompt: string | null
-  /** Prompt for generating session recaps (digests) when returning to unfocused sessions */
-  session_recap: string | null
   /** Prompt for investigating Dependabot vulnerability alerts */
   investigate_security_alert: string | null
   /** Prompt for investigating repository security advisories */
@@ -484,6 +482,13 @@ Respond with ONLY the raw JSON object, no markdown, no code fences, no explanati
 {"session_name": "Your session name here"}
 </output_format>`
 
+export const DEFAULT_PARALLEL_EXECUTION_PROMPT = `In plan mode, structure plans so subagents can work simultaneously. In build/execute mode, use subagents in parallel for faster implementation.
+
+When launching multiple Task subagents, prefer sending them in a single message rather than sequentially. Group independent work items (e.g., editing separate files, researching unrelated questions) into parallel Task calls. Only sequence Tasks when one depends on another's output.
+
+Instruct each sub-agent to briefly outline its approach before implementing, so it can course-correct early without formal plan mode overhead.`
+
+/** Default global system prompt (must match DEFAULT_GLOBAL_SYSTEM_PROMPT in src-tauri) */
 export const DEFAULT_GLOBAL_SYSTEM_PROMPT = `### 1. Plan Mode Default
 - Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions)
 - If something goes sideways, STOP and re-plan immediately - don't keep pushing
@@ -491,6 +496,7 @@ export const DEFAULT_GLOBAL_SYSTEM_PROMPT = `### 1. Plan Mode Default
 - Write detailed specs upfront to reduce ambiguity
 - Make the plan extremely concise. Sacrifice grammar for the sake of concision.
 - At the end of each plan, give me a list of unresolved questions to answer, if any.
+- In planning mode, present plans using the backend's native plan tool/UI call when available (Claude ExitPlanMode, Codex update_plan/CodexPlan, Cursor/OpenCode equivalent), not plain text only.
 
 ### 2. Documentation First
 - Before designing or coding against any external library/framework/SDK/API/CLI, run WebSearch for current docs.
@@ -545,24 +551,6 @@ export const DEFAULT_GLOBAL_SYSTEM_PROMPT = `### 1. Plan Mode Default
 
 - After each finished task, please write a few bullet points on how to test the changes.`
 
-export const DEFAULT_PARALLEL_EXECUTION_PROMPT = `In plan mode, structure plans so subagents can work simultaneously. In build/execute mode, use subagents in parallel for faster implementation.
-
-When launching multiple Task subagents, prefer sending them in a single message rather than sequentially. Group independent work items (e.g., editing separate files, researching unrelated questions) into parallel Task calls. Only sequence Tasks when one depends on another's output.
-
-Instruct each sub-agent to briefly outline its approach before implementing, so it can course-correct early without formal plan mode overhead.`
-
-/** Default prompt for session recap (digest) generation */
-export const DEFAULT_SESSION_RECAP_PROMPT = `You are a summarization assistant. Your ONLY job is to summarize the following conversation transcript. Do NOT continue the conversation or take any actions. Just summarize.
-
-CONVERSATION TRANSCRIPT:
-{conversation}
-
-END OF TRANSCRIPT.
-
-Now provide a brief summary with exactly two fields:
-- chat_summary: One sentence (max 100 chars) describing the overall goal and current status
-- last_action: One sentence (max 200 chars) describing what was just completed in the last exchange`
-
 /** Default prompt for addressing inline PR review comments */
 export const DEFAULT_REVIEW_COMMENTS_PROMPT = `<task>
 
@@ -609,7 +597,6 @@ export const DEFAULT_MAGIC_PROMPTS: MagicPrompts = {
   session_naming: null,
   parallel_execution: null,
   global_system_prompt: null,
-  session_recap: null,
   investigate_security_alert: null,
   investigate_advisory: null,
   investigate_linear_issue: null,
@@ -630,7 +617,6 @@ export interface MagicPromptModels {
   resolve_conflicts_model: MagicPromptModel
   release_notes_model: MagicPromptModel
   session_naming_model: MagicPromptModel
-  session_recap_model: MagicPromptModel
   investigate_security_alert_model: MagicPromptModel
   investigate_advisory_model: MagicPromptModel
   investigate_linear_issue_model: MagicPromptModel
@@ -652,7 +638,6 @@ export interface MagicPromptReasoningEfforts {
   resolve_conflicts_effort: MagicPromptReasoningEffort
   release_notes_effort: MagicPromptReasoningEffort
   session_naming_effort: MagicPromptReasoningEffort
-  session_recap_effort: MagicPromptReasoningEffort
   investigate_security_alert_effort: MagicPromptReasoningEffort
   investigate_advisory_effort: MagicPromptReasoningEffort
   investigate_linear_issue_effort: MagicPromptReasoningEffort
@@ -661,41 +646,50 @@ export interface MagicPromptReasoningEfforts {
 
 /** Default models for each magic prompt */
 export const DEFAULT_MAGIC_PROMPT_MODELS: MagicPromptModels = {
-  investigate_issue_model: 'claude-opus-4-7',
-  investigate_pr_model: 'claude-opus-4-7',
-  investigate_workflow_run_model: 'claude-opus-4-7',
+  investigate_issue_model: 'claude-opus-4-7[1m]',
+  investigate_pr_model: 'claude-opus-4-7[1m]',
+  investigate_workflow_run_model: 'claude-opus-4-7[1m]',
   pr_content_model: 'sonnet',
   commit_message_model: 'sonnet',
-  code_review_model: 'claude-opus-4-7',
-  context_summary_model: 'claude-opus-4-7',
-  resolve_conflicts_model: 'claude-opus-4-7',
+  code_review_model: 'claude-opus-4-7[1m]',
+  context_summary_model: 'claude-opus-4-7[1m]',
+  resolve_conflicts_model: 'claude-opus-4-7[1m]',
   release_notes_model: 'sonnet',
   session_naming_model: 'sonnet',
-  session_recap_model: 'sonnet',
-  investigate_security_alert_model: 'claude-opus-4-7',
-  investigate_advisory_model: 'claude-opus-4-7',
-  investigate_linear_issue_model: 'claude-opus-4-7',
-  review_comments_model: 'claude-opus-4-7',
+  investigate_security_alert_model: 'claude-opus-4-7[1m]',
+  investigate_advisory_model: 'claude-opus-4-7[1m]',
+  investigate_linear_issue_model: 'claude-opus-4-7[1m]',
+  review_comments_model: 'claude-opus-4-7[1m]',
 }
 
-/** Codex preset: heavy tasks use top model, light tasks use mini */
-export const CODEX_DEFAULT_MAGIC_PROMPT_MODELS: MagicPromptModels = {
-  investigate_issue_model: 'gpt-5.4',
-  investigate_pr_model: 'gpt-5.4',
-  investigate_workflow_run_model: 'gpt-5.4',
-  pr_content_model: 'gpt-5.3-codex',
-  commit_message_model: 'gpt-5.3-codex',
-  code_review_model: 'gpt-5.4',
-  context_summary_model: 'gpt-5.4',
-  resolve_conflicts_model: 'gpt-5.4',
-  release_notes_model: 'gpt-5.3-codex',
-  session_naming_model: 'gpt-5.3-codex',
-  session_recap_model: 'gpt-5.3-codex',
-  investigate_security_alert_model: 'gpt-5.4',
-  investigate_advisory_model: 'gpt-5.4',
-  investigate_linear_issue_model: 'gpt-5.4',
-  review_comments_model: 'gpt-5.4',
+function makeMagicPromptModelsPreset(
+  model: MagicPromptModel
+): MagicPromptModels {
+  return {
+    investigate_issue_model: model,
+    investigate_pr_model: model,
+    investigate_workflow_run_model: model,
+    pr_content_model: model,
+    commit_message_model: model,
+    code_review_model: model,
+    context_summary_model: model,
+    resolve_conflicts_model: model,
+    release_notes_model: model,
+    session_naming_model: model,
+    investigate_security_alert_model: model,
+    investigate_advisory_model: model,
+    investigate_linear_issue_model: model,
+    review_comments_model: model,
+  }
 }
+
+/** Codex preset: use GPT-5.5 for all magic prompts */
+export const CODEX_DEFAULT_MAGIC_PROMPT_MODELS: MagicPromptModels =
+  makeMagicPromptModelsPreset('gpt-5.5')
+
+/** Codex fast preset: use GPT-5.5 Fast for all magic prompts */
+export const CODEX_FAST_DEFAULT_MAGIC_PROMPT_MODELS: MagicPromptModels =
+  makeMagicPromptModelsPreset('gpt-5.5-fast')
 
 /** OpenCode preset for all magic prompts */
 export const OPENCODE_DEFAULT_MAGIC_PROMPT_MODELS: MagicPromptModels = {
@@ -709,7 +703,6 @@ export const OPENCODE_DEFAULT_MAGIC_PROMPT_MODELS: MagicPromptModels = {
   resolve_conflicts_model: 'opencode/gpt-5.3-codex',
   release_notes_model: 'opencode/gpt-5.3-codex',
   session_naming_model: 'opencode/gpt-5.3-codex',
-  session_recap_model: 'opencode/gpt-5.3-codex',
   investigate_security_alert_model: 'opencode/gpt-5.3-codex',
   investigate_advisory_model: 'opencode/gpt-5.3-codex',
   investigate_linear_issue_model: 'opencode/gpt-5.3-codex',
@@ -728,7 +721,6 @@ export const DEFAULT_MAGIC_PROMPT_EFFORTS: MagicPromptReasoningEfforts = {
   resolve_conflicts_effort: null,
   release_notes_effort: null,
   session_naming_effort: null,
-  session_recap_effort: null,
   investigate_security_alert_effort: null,
   investigate_advisory_effort: null,
   investigate_linear_issue_effort: null,
@@ -747,7 +739,6 @@ export const CODEX_DEFAULT_MAGIC_PROMPT_EFFORTS: MagicPromptReasoningEfforts = {
   resolve_conflicts_effort: 'medium',
   release_notes_effort: 'low',
   session_naming_effort: 'low',
-  session_recap_effort: 'low',
   investigate_security_alert_effort: 'medium',
   investigate_advisory_effort: 'medium',
   investigate_linear_issue_effort: 'medium',
@@ -775,7 +766,6 @@ export interface MagicPromptProviders {
   resolve_conflicts_provider: string | null
   release_notes_provider: string | null
   session_naming_provider: string | null
-  session_recap_provider: string | null
   investigate_security_alert_provider: string | null
   investigate_advisory_provider: string | null
   investigate_linear_issue_provider: string | null
@@ -794,7 +784,6 @@ export const DEFAULT_MAGIC_PROMPT_PROVIDERS: MagicPromptProviders = {
   resolve_conflicts_provider: null,
   release_notes_provider: null,
   session_naming_provider: null,
-  session_recap_provider: null,
   investigate_security_alert_provider: null,
   investigate_advisory_provider: null,
   investigate_linear_issue_provider: null,
@@ -817,7 +806,6 @@ export interface MagicPromptBackends {
   resolve_conflicts_backend: string | null
   release_notes_backend: string | null
   session_naming_backend: string | null
-  session_recap_backend: string | null
   investigate_security_alert_backend: string | null
   investigate_advisory_backend: string | null
   investigate_linear_issue_backend: string | null
@@ -836,7 +824,6 @@ export const DEFAULT_MAGIC_PROMPT_BACKENDS: MagicPromptBackends = {
   resolve_conflicts_backend: null,
   release_notes_backend: null,
   session_naming_backend: null,
-  session_recap_backend: null,
   investigate_security_alert_backend: null,
   investigate_advisory_backend: null,
   investigate_linear_issue_backend: null,
@@ -855,7 +842,6 @@ function makeBackendsPreset(backend: string): MagicPromptBackends {
     resolve_conflicts_backend: backend,
     release_notes_backend: backend,
     session_naming_backend: backend,
-    session_recap_backend: backend,
     investigate_security_alert_backend: backend,
     investigate_advisory_backend: backend,
     investigate_linear_issue_backend: backend,
@@ -932,8 +918,8 @@ export interface AppPreferences {
   archive_retention_days: number // Days to keep archived items (0 = never delete)
   syntax_theme_dark: SyntaxTheme // Syntax highlighting theme for dark mode
   syntax_theme_light: SyntaxTheme // Syntax highlighting theme for light mode
-  session_recap_enabled: boolean // Show session recap when returning to unfocused sessions
   parallel_execution_prompt_enabled: boolean // Add system prompt to encourage parallel sub-agent execution
+  compact_chat_view_enabled: boolean // Collapse intermediate tool calls/replies into a single ticker line, only showing the latest activity
   magic_prompts: MagicPrompts // Customizable prompts for AI-powered features
   magic_prompt_models: MagicPromptModels // Per-prompt model overrides
   magic_prompt_providers: MagicPromptProviders // Per-prompt provider overrides (null = use default_provider)
@@ -964,6 +950,8 @@ export interface AppPreferences {
   zoom_level: number // Zoom level percentage (50-200, default 100)
   custom_cli_profiles: CustomCliProfile[] // Custom CLI settings profiles (e.g., OpenRouter, MiniMax)
   default_provider: string | null // Default provider profile name (null = Anthropic direct)
+  favorite_models: string[] // Favourited model keys ("backend:model") shown at top of picker
+  fast_mode_models: string[] // Model keys ("backend:baseModel") with fast tier last enabled
 
   confirm_session_close: boolean // Show confirmation dialog before closing sessions/worktrees
   default_execution_mode: ExecutionMode // Default execution mode for new sessions: 'plan', 'build', or 'yolo'
@@ -992,6 +980,7 @@ export interface AppPreferences {
   opencode_cli_source: 'jean' | 'path' // OpenCode CLI source: 'jean' (managed) or 'path' (system PATH)
   gh_cli_source: 'jean' | 'path' // GitHub CLI source: 'jean' (managed) or 'path' (system PATH)
   expand_tool_calls_by_default: boolean // Expand all tool call collapsibles by default
+  auto_update_ai_backends: boolean // Auto-install CLI updates in background when a new version is detected
 }
 
 export interface CustomCliProfile {
@@ -1096,17 +1085,81 @@ export type ClaudeModel =
   | 'haiku'
 
 export const modelOptions: { value: ClaudeModel; label: string }[] = [
-  { value: 'claude-opus-4-7', label: 'Claude Opus 4.7' },
   { value: 'claude-opus-4-7[1m]', label: 'Claude Opus 4.7 (1M)' },
-  { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
-  { value: 'claude-opus-4-5-20251101', label: 'Claude Opus 4.5' },
   { value: 'claude-opus-4-6[1m]', label: 'Claude Opus 4.6 (1M)' },
-  { value: 'claude-opus-4-6-fast', label: 'Claude Opus 4.6 Fast' },
-  { value: 'claude-opus-4-6[1m]-fast', label: 'Claude Opus 4.6 (1M) Fast' },
-  { value: 'sonnet', label: 'Claude Sonnet 4.6' },
+  { value: 'claude-opus-4-5-20251101', label: 'Claude Opus 4.5' },
   { value: 'claude-sonnet-4-6[1m]', label: 'Claude Sonnet 4.6 (1M)' },
   { value: 'haiku', label: 'Claude Haiku' },
 ]
+
+const legacyClaudeDefaultModelMap = {
+  'claude-opus-4-7': 'claude-opus-4-7[1m]',
+  'claude-opus-4-6': 'claude-opus-4-6[1m]',
+  'claude-opus-4-6-fast': 'claude-opus-4-6[1m]-fast',
+  sonnet: 'claude-sonnet-4-6[1m]',
+} as const satisfies Partial<Record<ClaudeModel, ClaudeModel>>
+
+const knownClaudeModels = new Set<string>([
+  ...modelOptions.map(option => option.value),
+  'claude-opus-4-6[1m]-fast',
+  'opus',
+])
+
+export function normalizeClaudeModel(model: string): ClaudeModel {
+  if (model in legacyClaudeDefaultModelMap) {
+    return legacyClaudeDefaultModelMap[
+      model as keyof typeof legacyClaudeDefaultModelMap
+    ]
+  }
+
+  return knownClaudeModels.has(model)
+    ? (model as ClaudeModel)
+    : 'claude-opus-4-7[1m]'
+}
+
+// Claude models that support fast service tier. Fast mode is exposed via a
+// separate UI toggle, not as standalone dropdown entries.
+export const CLAUDE_FAST_MODEL_MAP = {
+  'claude-opus-4-6[1m]': 'claude-opus-4-6[1m]-fast',
+} as const
+
+export type ClaudeFastBaseModel = keyof typeof CLAUDE_FAST_MODEL_MAP
+
+const CLAUDE_FAST_TO_BASE: Record<string, ClaudeFastBaseModel> =
+  Object.fromEntries(
+    Object.entries(CLAUDE_FAST_MODEL_MAP).map(([base, fast]) => [fast, base])
+  ) as Record<string, ClaudeFastBaseModel>
+
+export function getClaudeFastInfo(model: string): CodexFastInfo {
+  if (model in CLAUDE_FAST_MODEL_MAP) {
+    const base = model as ClaudeFastBaseModel
+    return {
+      supportsFast: true,
+      isFast: false,
+      baseModel: base,
+      fastModel: CLAUDE_FAST_MODEL_MAP[base],
+    }
+  }
+  const base = CLAUDE_FAST_TO_BASE[model]
+  if (base) {
+    return {
+      supportsFast: true,
+      isFast: true,
+      baseModel: base,
+      fastModel: model,
+    }
+  }
+  return { supportsFast: false, isFast: false, baseModel: model }
+}
+
+export function getModelFastInfo(
+  backend: CliBackend,
+  model: string
+): CodexFastInfo {
+  if (backend === 'codex') return getCodexFastInfo(model)
+  if (backend === 'claude') return getClaudeFastInfo(model)
+  return { supportsFast: false, isFast: false, baseModel: model }
+}
 
 export const thinkingLevelOptions: { value: ThinkingLevel; label: string }[] = [
   { value: 'off', label: 'Off' },
@@ -1120,11 +1173,19 @@ export const effortLevelOptions: {
   label: string
   description: string
 }[] = [
-  { value: 'low', label: 'Low', description: 'Minimal thinking' },
-  { value: 'medium', label: 'Medium', description: 'Moderate thinking' },
-  { value: 'high', label: 'High', description: 'Deep reasoning' },
-  { value: 'xhigh', label: 'xHigh', description: 'Extra high (Opus 4.7)' },
-  { value: 'max', label: 'Max', description: 'No limits' },
+  { value: 'low', label: 'Low', description: 'Minimal Claude Opus effort' },
+  {
+    value: 'medium',
+    label: 'Medium',
+    description: 'Moderate Claude Opus effort',
+  },
+  { value: 'high', label: 'High', description: 'High Claude Opus effort' },
+  {
+    value: 'xhigh',
+    label: 'xHigh',
+    description: 'Extra high Claude Opus effort',
+  },
+  { value: 'max', label: 'Max', description: 'Maximum Claude Opus effort' },
 ]
 
 // =============================================================================
@@ -1133,9 +1194,11 @@ export const effortLevelOptions: {
 
 export type CodexModel =
   | 'gpt-5.5'
+  | 'gpt-5.5-fast'
   | 'gpt-5.4'
   | 'gpt-5.4-fast'
   | 'gpt-5.4-mini'
+  | 'gpt-5.4-mini-fast'
   | 'gpt-5.3'
   | 'gpt-5.3-codex'
   | 'gpt-5.2-codex'
@@ -1143,10 +1206,53 @@ export type CodexModel =
   | 'gpt-5.2'
   | 'gpt-5.1-codex-mini'
 
+// Codex models that support fast service tier. Fast mode is exposed via a
+// separate UI toggle, not as standalone dropdown entries.
+export const CODEX_FAST_MODEL_MAP = {
+  'gpt-5.5': 'gpt-5.5-fast',
+  'gpt-5.4': 'gpt-5.4-fast',
+  'gpt-5.4-mini': 'gpt-5.4-mini-fast',
+} as const
+
+export type CodexFastBaseModel = keyof typeof CODEX_FAST_MODEL_MAP
+
+const CODEX_FAST_TO_BASE: Record<string, CodexFastBaseModel> =
+  Object.fromEntries(
+    Object.entries(CODEX_FAST_MODEL_MAP).map(([base, fast]) => [fast, base])
+  ) as Record<string, CodexFastBaseModel>
+
+export interface CodexFastInfo {
+  supportsFast: boolean
+  isFast: boolean
+  baseModel: string
+  fastModel?: string
+}
+
+export function getCodexFastInfo(model: string): CodexFastInfo {
+  if (model in CODEX_FAST_MODEL_MAP) {
+    const base = model as CodexFastBaseModel
+    return {
+      supportsFast: true,
+      isFast: false,
+      baseModel: base,
+      fastModel: CODEX_FAST_MODEL_MAP[base],
+    }
+  }
+  const base = CODEX_FAST_TO_BASE[model]
+  if (base) {
+    return {
+      supportsFast: true,
+      isFast: true,
+      baseModel: base,
+      fastModel: model,
+    }
+  }
+  return { supportsFast: false, isFast: false, baseModel: model }
+}
+
 export const codexModelOptions: { value: CodexModel; label: string }[] = [
   { value: 'gpt-5.5', label: 'GPT 5.5' },
   { value: 'gpt-5.4', label: 'GPT 5.4' },
-  { value: 'gpt-5.4-fast', label: 'GPT 5.4 - Fast' },
   { value: 'gpt-5.4-mini', label: 'GPT 5.4 Mini' },
   { value: 'gpt-5.3', label: 'GPT 5.3' },
   { value: 'gpt-5.3-codex', label: 'GPT 5.3 Codex' },
@@ -1154,6 +1260,21 @@ export const codexModelOptions: { value: CodexModel; label: string }[] = [
   { value: 'gpt-5.1-codex-max', label: 'GPT 5.1 Codex Max' },
   { value: 'gpt-5.2', label: 'GPT 5.2' },
   { value: 'gpt-5.1-codex-mini', label: 'GPT 5.1 Codex Mini' },
+]
+
+export const codexDefaultModelOptions: {
+  value: CodexModel
+  label: string
+}[] = [
+  { value: 'gpt-5.5', label: 'GPT 5.5' },
+  { value: 'gpt-5.5-fast', label: 'GPT 5.5 Fast' },
+  { value: 'gpt-5.4', label: 'GPT 5.4' },
+  { value: 'gpt-5.4-fast', label: 'GPT 5.4 Fast' },
+  { value: 'gpt-5.4-mini', label: 'GPT 5.4 Mini' },
+  { value: 'gpt-5.4-mini-fast', label: 'GPT 5.4 Mini Fast' },
+  ...codexModelOptions.filter(
+    option => !['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini'].includes(option.value)
+  ),
 ]
 
 const deprecatedCodexFastModelMap = {
@@ -1172,7 +1293,7 @@ export function normalizeCodexModel(model: string): CodexModel {
     ]
   }
 
-  return isCodexModel(model) ? model : 'gpt-5.4'
+  return isCodexModel(model) ? model : 'gpt-5.5'
 }
 
 export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'
@@ -1208,7 +1329,7 @@ export function isCursorModel(model: string): model is CursorModel {
 
 /** Check if a model string identifies a Codex model */
 export function isCodexModel(model: string): model is CodexModel {
-  return (codexModelOptions as { value: string }[]).some(
+  return (codexDefaultModelOptions as { value: string }[]).some(
     opt => opt.value === model
   )
 }
@@ -1220,7 +1341,7 @@ export const codexReasoningOptions: {
   { value: 'low', label: 'Low' },
   { value: 'medium', label: 'Medium' },
   { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'Extra High' },
+  { value: 'xhigh', label: 'xHigh' },
 ]
 
 // =============================================================================
@@ -1512,7 +1633,7 @@ export function getEditorLabel(editor: EditorApp | undefined): string {
 
 export const defaultPreferences: AppPreferences = {
   theme: 'system',
-  selected_model: 'claude-opus-4-7',
+  selected_model: 'claude-opus-4-7[1m]',
   thinking_level: 'ultrathink',
   default_effort_level: 'high',
   terminal: isWindows ? 'powershell' : 'terminal',
@@ -1532,8 +1653,8 @@ export const defaultPreferences: AppPreferences = {
   archive_retention_days: 7,
   syntax_theme_dark: 'vitesse-black',
   syntax_theme_light: 'github-light',
-  session_recap_enabled: false, // Default: disabled (experimental)
   parallel_execution_prompt_enabled: false, // Default: disabled (experimental)
+  compact_chat_view_enabled: false, // Default: disabled (experimental)
   magic_prompts: DEFAULT_MAGIC_PROMPTS,
   magic_prompt_models: DEFAULT_MAGIC_PROMPT_MODELS,
   magic_prompt_providers: DEFAULT_MAGIC_PROMPT_PROVIDERS,
@@ -1564,10 +1685,12 @@ export const defaultPreferences: AppPreferences = {
   zoom_level: ZOOM_LEVEL_DEFAULT,
   custom_cli_profiles: [],
   default_provider: null,
+  favorite_models: [],
+  fast_mode_models: [],
   confirm_session_close: true, // Default: enabled (show confirmation)
   default_execution_mode: 'plan', // Default: plan mode
   default_backend: 'claude', // Default: Claude
-  selected_codex_model: 'gpt-5.4', // Default: latest Codex model
+  selected_codex_model: 'gpt-5.5', // Default: latest Codex model
   selected_opencode_model: 'opencode/gpt-5.3-codex', // Default OpenCode model
   selected_pi_model: 'pi/openai/gpt-5.5', // Default Pi model
   selected_cursor_model: 'cursor/auto', // Default Cursor model
@@ -1591,4 +1714,5 @@ export const defaultPreferences: AppPreferences = {
   opencode_cli_source: 'jean', // Default: Jean-managed
   gh_cli_source: 'jean', // Default: Jean-managed
   expand_tool_calls_by_default: false, // Default: collapsed
+  auto_update_ai_backends: true, // Default: auto-update AI backends in the background
 }

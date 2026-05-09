@@ -46,7 +46,6 @@ import type {
   CompactingEvent,
   CompactedEvent,
   Session,
-  SessionDigest,
   WorktreeSessions,
   SaveContextResponse,
   WakeupFiredEvent,
@@ -293,7 +292,36 @@ export default function useStreamingEvents({
       // Check if THIS client initiated the send (sender calls addSendingSession
       // before sendMessage.mutate, so it's already in sendingSessionIds).
       const isSender = !!useChatStore.getState().sendingSessionIds[session_id]
+      // A remote web/mobile client may start a new turn while this client still
+      // has the previous turn parked as waiting/reviewing in Zustand. Clear
+      // those stale terminal flags before marking the session as running.
+      useChatStore.setState(state => {
+        if (
+          !state.waitingForInputSessionIds[session_id] &&
+          !state.reviewingSessions[session_id]
+        ) {
+          return state
+        }
+        const { [session_id]: _waiting, ...waitingForInputSessionIds } =
+          state.waitingForInputSessionIds
+        const { [session_id]: _reviewing, ...reviewingSessions } =
+          state.reviewingSessions
+        return { waitingForInputSessionIds, reviewingSessions }
+      })
       addSendingSession(session_id)
+      queryClient.setQueryData<Session>(
+        chatQueryKeys.session(session_id),
+        old =>
+          old
+            ? {
+                ...old,
+                waiting_for_input: false,
+                waiting_for_input_type: null,
+                is_reviewing: false,
+                last_run_status: 'running',
+              }
+            : old
+      )
       // Only invalidate for non-sender clients. The sender already has correct
       // optimistic state; refetching can overwrite it with stale disk data
       // (especially on WebSocket where dispatch is concurrent).
@@ -660,6 +688,15 @@ export default function useStreamingEvents({
         }
       )
 
+    const unlistenCodexGoal = listen<{
+      session_id: string
+      worktree_id: string
+      goal: string | null
+    }>('chat:codex_goal', event => {
+      const { session_id, goal } = event.payload
+      useChatStore.getState().setCodexGoal(session_id, goal ?? null)
+    })
+
     const unlistenDone = listen<DoneEvent>('chat:done', event => {
       const sessionId = event.payload.session_id
       const worktreeId = event.payload.worktree_id
@@ -689,11 +726,9 @@ export default function useStreamingEvents({
         pauseSession,
         activeWorktreeId,
         activeSessionIds,
-        markSessionNeedsDigest,
       } = useChatStore.getState()
 
       // Check if this session is currently being viewed
-      // Only skip digest if BOTH the worktree AND session are active (user is looking at it)
       const isActiveWorktree = worktreeId === activeWorktreeId
       const isActiveSession = activeSessionIds[worktreeId] === sessionId
       const isViewingInFullView = isActiveWorktree && isActiveSession
@@ -721,47 +756,9 @@ export default function useStreamingEvents({
           .catch(() => undefined)
       }
 
-      // Check if session recap is enabled in preferences
       const preferences = queryClient.getQueryData<AppPreferences>(
         preferencesQueryKeys.preferences()
       )
-      const sessionRecapEnabled = preferences?.session_recap_enabled ?? false
-
-      // Only generate digest if status is CHANGING to review (not already reviewing)
-      // This prevents generating digests for all restored sessions on app startup
-      const wasAlreadyReviewing =
-        useChatStore.getState().reviewingSessions[sessionId] ?? false
-
-      if (
-        !isCurrentlyViewing &&
-        !isUserInitiated &&
-        sessionRecapEnabled &&
-        !wasAlreadyReviewing
-      ) {
-        // Mark for digest and generate it in the background immediately
-        markSessionNeedsDigest(sessionId)
-
-        // Generate digest in background (fire and forget)
-        invoke<SessionDigest>('generate_session_digest', { sessionId })
-          .then(digest => {
-            useChatStore.getState().setSessionDigest(sessionId, digest)
-            // Persist digest to disk so it survives app reload
-            invoke('update_session_digest', { sessionId, digest }).catch(
-              err => {
-                console.error(
-                  '[useStreamingEvents] Failed to persist digest:',
-                  err
-                )
-              }
-            )
-          })
-          .catch(err => {
-            console.error(
-              '[useStreamingEvents] Failed to generate digest:',
-              err
-            )
-          })
-      }
 
       // Capture streaming state to local variables BEFORE clearing
       // This ensures we have the data for the optimistic message
@@ -1264,7 +1261,6 @@ export default function useStreamingEvents({
         setError,
         activeWorktreeId,
         activeSessionIds,
-        markSessionNeedsDigest,
       } = useChatStore.getState()
 
       // Check if this session is currently being viewed
@@ -1300,49 +1296,6 @@ export default function useStreamingEvents({
         invoke('set_session_last_opened', { sessionId: session_id })
           .then(() => window.dispatchEvent(new CustomEvent('session-opened')))
           .catch(() => undefined)
-      }
-
-      // Check if session recap is enabled in preferences
-      const preferences = queryClient.getQueryData<AppPreferences>(
-        preferencesQueryKeys.preferences()
-      )
-      const sessionRecapEnabled = preferences?.session_recap_enabled ?? false
-
-      // Only generate digest if status is CHANGING to review (not already reviewing)
-      const wasAlreadyReviewing =
-        useChatStore.getState().reviewingSessions[session_id] ?? false
-
-      if (
-        !isCurrentlyViewing &&
-        !isUserInitiatedErr &&
-        sessionRecapEnabled &&
-        !wasAlreadyReviewing
-      ) {
-        // Mark for digest and generate it in the background immediately
-        markSessionNeedsDigest(session_id)
-
-        invoke<SessionDigest>('generate_session_digest', {
-          sessionId: session_id,
-        })
-          .then(digest => {
-            useChatStore.getState().setSessionDigest(session_id, digest)
-            // Persist digest to disk so it survives app reload
-            invoke('update_session_digest', {
-              sessionId: session_id,
-              digest,
-            }).catch(err => {
-              console.error(
-                '[useStreamingEvents] Failed to persist digest:',
-                err
-              )
-            })
-          })
-          .catch(err => {
-            console.error(
-              '[useStreamingEvents] Failed to generate digest:',
-              err
-            )
-          })
       }
 
       // Set error state for inline display
@@ -1464,7 +1417,6 @@ export default function useStreamingEvents({
           streamingContentBlocks,
           activeWorktreeId,
           activeSessionIds,
-          markSessionNeedsDigest,
         } = useChatStore.getState()
         const sendStarted = sendStartedAt[session_id] ?? 0
         if (sendStarted > emitted_at_ms) {
@@ -1509,49 +1461,6 @@ export default function useStreamingEvents({
           invoke('set_session_last_opened', { sessionId: session_id })
             .then(() => window.dispatchEvent(new CustomEvent('session-opened')))
             .catch(() => undefined)
-        }
-
-        // Check if session recap is enabled in preferences
-        const preferences = queryClient.getQueryData<AppPreferences>(
-          preferencesQueryKeys.preferences()
-        )
-        const sessionRecapEnabled = preferences?.session_recap_enabled ?? false
-
-        // Only generate digest if status is CHANGING to review (not already reviewing)
-        const wasAlreadyReviewing =
-          useChatStore.getState().reviewingSessions[session_id] ?? false
-
-        if (
-          !isCurrentlyViewing &&
-          !isUserInitiatedCan &&
-          sessionRecapEnabled &&
-          !wasAlreadyReviewing
-        ) {
-          // Mark for digest and generate it in the background immediately
-          markSessionNeedsDigest(session_id)
-
-          invoke<SessionDigest>('generate_session_digest', {
-            sessionId: session_id,
-          })
-            .then(digest => {
-              useChatStore.getState().setSessionDigest(session_id, digest)
-              // Persist digest to disk so it survives app reload
-              invoke('update_session_digest', {
-                sessionId: session_id,
-                digest,
-              }).catch(err => {
-                console.error(
-                  '[useStreamingEvents] Failed to persist digest:',
-                  err
-                )
-              })
-            })
-            .catch(err => {
-              console.error(
-                '[useStreamingEvents] Failed to generate digest:',
-                err
-              )
-            })
         }
 
         // Clear compacting state (safety net)
@@ -1647,6 +1556,11 @@ export default function useStreamingEvents({
           // once streamingContents has been wiped by cancelSession().
           useChatStore.getState().clearLastSentAttachments(session_id)
           useChatStore.getState().clearLastSentMessage(session_id)
+          // Mark session as "cancelling" so concurrent cache:invalidate events
+          // skip the single-session refetch and don't overwrite the optimistic
+          // message before save_cancelled_message reconciles disk state.
+          // Cleared in the .finally() below once disk reconcile completes.
+          useChatStore.getState().addCancellingSession(session_id)
           // Preserve partial response as optimistic message BEFORE clearing streaming state
           queryClient.setQueryData<Session>(
             chatQueryKeys.session(session_id),
@@ -1669,20 +1583,40 @@ export default function useStreamingEvents({
           )
           // Persist partial content to JSONL so it survives app reload.
           // The backend command handler may not have finished writing yet
-          // (e.g., OpenCode POST still in-flight).
-          invoke('save_cancelled_message', {
+          // (e.g., OpenCode POST still in-flight, or web access WebSocket RTT
+          // exceeds the 250ms cache:invalidate debounce window).
+          // After resolution, clear the cancelling flag and refetch the single
+          // session so the now-reconciled disk state becomes authoritative.
+          void invoke('save_cancelled_message', {
             sessionId: session_id,
             worktreeId: sessionWorktreeId ?? eventWorktreeId,
             worktreePath: '',
             content: content ?? '',
             toolCalls: toolCalls ?? [],
             contentBlocks: contentBlocks ?? [],
-          }).catch(err =>
-            console.debug(
-              '[useStreamingEvents] Failed to persist partial cancelled content:',
-              err
+          })
+            .catch(err =>
+              console.debug(
+                '[useStreamingEvents] Failed to persist partial cancelled content:',
+                err
+              )
             )
-          )
+            .finally(() => {
+              useChatStore.getState().removeCancellingSession(session_id)
+              queryClient.invalidateQueries({
+                queryKey: chatQueryKeys.session(session_id),
+              })
+            })
+          // Safety timeout: if save_cancelled_message hangs (e.g., WebSocket
+          // disconnect), don't keep the session in cancelling state forever.
+          setTimeout(() => {
+            if (useChatStore.getState().cancellingSessionIds[session_id]) {
+              useChatStore.getState().removeCancellingSession(session_id)
+              queryClient.invalidateQueries({
+                queryKey: chatQueryKeys.session(session_id),
+              })
+            }
+          }, 5000)
         }
 
         // NOW batch-clear all streaming state in a single Zustand set()
@@ -1925,6 +1859,7 @@ export default function useStreamingEvents({
       unlistenCodexUserInputRequest.then(f => f())
       unlistenCodexMcpElicitation.then(f => f())
       unlistenCodexDynamicToolCall.then(f => f())
+      unlistenCodexGoal.then(f => f())
       unlistenDone.then(f => f())
       unlistenError.then(f => f())
       unlistenCancelled.then(f => f())

@@ -27,6 +27,7 @@ import { SkillBadge } from './SkillBadge'
 import { ToolCallsDisplay } from './ToolCallsDisplay'
 import { ExitPlanModeButton } from './ExitPlanModeButton'
 import { EditedFilesDisplay } from './EditedFilesDisplay'
+import type { FileEdit } from './FileEditsDiffModal'
 import {
   Tooltip,
   TooltipTrigger,
@@ -103,7 +104,7 @@ interface MessageItemProps {
   /** Callback when user clicks a file path */
   onFileClick: (path: string) => void
   /** Callback when user clicks an edited file badge (opens diff modal) */
-  onEditedFileClick: (path: string) => void
+  onEditedFileClick: (path: string, edits: FileEdit[]) => void
   /** Callback when user fixes a finding */
   onFixFinding: (finding: ReviewFinding, suggestion?: string) => Promise<void>
   /** Callback when user fixes all findings */
@@ -380,7 +381,7 @@ export const MessageItem = memo(function MessageItem({
                 <>
                   {fallbackAssistantIntro && (
                     <Markdown
-                      streaming={message.cancelled}
+                      streaming={message.cancelled ?? false}
                       messageId={message.id}
                       sessionId={sessionId}
                     >
@@ -433,7 +434,7 @@ export const MessageItem = memo(function MessageItem({
                               return (
                                 <div>
                                   <Markdown
-                                    streaming={message.cancelled}
+                                    streaming={message.cancelled ?? false}
                                     messageId={message.id}
                                     sessionId={sessionId}
                                   >
@@ -454,7 +455,7 @@ export const MessageItem = memo(function MessageItem({
                             }
                             return (
                               <Markdown
-                                streaming={message.cancelled}
+                                streaming={message.cancelled ?? false}
                                 messageId={message.id}
                                 sessionId={sessionId}
                               >
@@ -630,7 +631,7 @@ export const MessageItem = memo(function MessageItem({
         <>
           {message.role === 'assistant' && fallbackPrePlanText && (
             <Markdown
-              streaming={message.cancelled}
+              streaming={message.cancelled ?? false}
               messageId={message.id}
               sessionId={sessionId}
             >
@@ -672,7 +673,7 @@ export const MessageItem = memo(function MessageItem({
                 hasReviewFindings(displayContent) ? (
                   <>
                     <Markdown
-                      streaming={message.cancelled}
+                      streaming={message.cancelled ?? false}
                       messageId={message.id}
                       sessionId={sessionId}
                     >
@@ -693,7 +694,7 @@ export const MessageItem = memo(function MessageItem({
                   </div>
                 ) : (
                   <Markdown
-                    streaming={message.cancelled}
+                    streaming={message.cancelled ?? false}
                     messageId={message.id}
                     sessionId={sessionId}
                   >
@@ -768,7 +769,7 @@ export const MessageItem = memo(function MessageItem({
                 <button
                   type="button"
                   onClick={handleCopyToInput}
-                  className="shrink-0 mt-2 p-1 rounded cursor-pointer text-muted-foreground/0 hover:text-muted-foreground hover:bg-muted/50 group-hover:text-muted-foreground/50 transition-colors"
+                  className="shrink-0 mt-2 p-1 rounded cursor-pointer text-muted-foreground/0 [@media(pointer:coarse)]:text-muted-foreground/60 hover:text-muted-foreground hover:bg-muted/50 group-hover:text-muted-foreground/50 transition-colors"
                 >
                   <Copy className="h-3.5 w-3.5" />
                 </button>

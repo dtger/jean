@@ -49,7 +49,6 @@ import {
   DEFAULT_RELEASE_NOTES_PROMPT,
   DEFAULT_REVIEW_COMMENTS_PROMPT,
   DEFAULT_SESSION_NAMING_PROMPT,
-  DEFAULT_SESSION_RECAP_PROMPT,
   DEFAULT_PARALLEL_EXECUTION_PROMPT,
   DEFAULT_GLOBAL_SYSTEM_PROMPT,
   DEFAULT_MAGIC_PROMPTS,
@@ -60,6 +59,7 @@ import {
   CODEX_DEFAULT_MAGIC_PROMPT_BACKENDS,
   OPENCODE_DEFAULT_MAGIC_PROMPT_BACKENDS,
   CODEX_DEFAULT_MAGIC_PROMPT_MODELS,
+  CODEX_FAST_DEFAULT_MAGIC_PROMPT_MODELS,
   OPENCODE_DEFAULT_MAGIC_PROMPT_MODELS,
   codexModelOptions,
   isCodexModel,
@@ -118,7 +118,7 @@ const PROMPT_SECTIONS: PromptSection[] = [
           },
         ],
         defaultValue: DEFAULT_INVESTIGATE_ISSUE_PROMPT,
-        defaultModel: 'claude-opus-4-7',
+        defaultModel: 'claude-opus-4-7[1m]',
       },
       {
         key: 'investigate_pr',
@@ -139,7 +139,7 @@ const PROMPT_SECTIONS: PromptSection[] = [
           },
         ],
         defaultValue: DEFAULT_INVESTIGATE_PR_PROMPT,
-        defaultModel: 'claude-opus-4-7',
+        defaultModel: 'claude-opus-4-7[1m]',
       },
       {
         key: 'investigate_workflow_run',
@@ -166,7 +166,7 @@ const PROMPT_SECTIONS: PromptSection[] = [
           },
         ],
         defaultValue: DEFAULT_INVESTIGATE_WORKFLOW_RUN_PROMPT,
-        defaultModel: 'claude-opus-4-7',
+        defaultModel: 'claude-opus-4-7[1m]',
       },
       {
         key: 'investigate_security_alert',
@@ -188,7 +188,7 @@ const PROMPT_SECTIONS: PromptSection[] = [
           },
         ],
         defaultValue: DEFAULT_INVESTIGATE_SECURITY_ALERT_PROMPT,
-        defaultModel: 'claude-opus-4-7',
+        defaultModel: 'claude-opus-4-7[1m]',
       },
       {
         key: 'investigate_advisory',
@@ -208,7 +208,7 @@ const PROMPT_SECTIONS: PromptSection[] = [
           },
         ],
         defaultValue: DEFAULT_INVESTIGATE_ADVISORY_PROMPT,
-        defaultModel: 'claude-opus-4-7',
+        defaultModel: 'claude-opus-4-7[1m]',
       },
       {
         key: 'investigate_linear_issue',
@@ -233,7 +233,7 @@ const PROMPT_SECTIONS: PromptSection[] = [
           },
         ],
         defaultValue: DEFAULT_INVESTIGATE_LINEAR_ISSUE_PROMPT,
-        defaultModel: 'claude-opus-4-7',
+        defaultModel: 'claude-opus-4-7[1m]',
       },
     ],
   },
@@ -260,7 +260,7 @@ const PROMPT_SECTIONS: PromptSection[] = [
           },
         ],
         defaultValue: DEFAULT_CODE_REVIEW_PROMPT,
-        defaultModel: 'claude-opus-4-7',
+        defaultModel: 'claude-opus-4-7[1m]',
       },
       {
         key: 'review_comments',
@@ -282,7 +282,7 @@ const PROMPT_SECTIONS: PromptSection[] = [
           },
         ],
         defaultValue: DEFAULT_REVIEW_COMMENTS_PROMPT,
-        defaultModel: 'claude-opus-4-7',
+        defaultModel: 'claude-opus-4-7[1m]',
       },
       {
         key: 'commit_message',
@@ -352,7 +352,7 @@ const PROMPT_SECTIONS: PromptSection[] = [
         description: 'Instructions appended to conflict resolution prompts.',
         variables: [],
         defaultValue: DEFAULT_RESOLVE_CONFLICTS_PROMPT,
-        defaultModel: 'claude-opus-4-7',
+        defaultModel: 'claude-opus-4-7[1m]',
       },
       {
         key: 'release_notes',
@@ -423,36 +423,11 @@ const PROMPT_SECTIONS: PromptSection[] = [
         defaultValue: DEFAULT_SESSION_NAMING_PROMPT,
         defaultModel: 'sonnet',
       },
-      {
-        key: 'session_recap',
-        modelKey: 'session_recap_model',
-        providerKey: 'session_recap_provider',
-        backendKey: 'session_recap_backend',
-        label: 'Session Recap',
-        description:
-          'Prompt for generating session recaps (digests) when returning to unfocused sessions.',
-        variables: [
-          {
-            name: '{conversation}',
-            description: 'Full conversation transcript',
-          },
-        ],
-        defaultValue: DEFAULT_SESSION_RECAP_PROMPT,
-        defaultModel: 'sonnet',
-      },
     ],
   },
   {
     label: 'System Prompts',
     configs: [
-      {
-        key: 'global_system_prompt',
-        label: 'Global System Prompt',
-        description:
-          'Appended to every chat session. Works like ~/.claude/CLAUDE.md but managed in settings.',
-        variables: [],
-        defaultValue: DEFAULT_GLOBAL_SYSTEM_PROMPT,
-      },
       {
         key: 'parallel_execution',
         label: 'Parallel Execution',
@@ -460,6 +435,14 @@ const PROMPT_SECTIONS: PromptSection[] = [
           'System prompt appended to every chat session when enabled in Experimental settings. Encourages sub-agent parallelization.',
         variables: [],
         defaultValue: DEFAULT_PARALLEL_EXECUTION_PROMPT,
+      },
+      {
+        key: 'global_system_prompt',
+        label: 'Global System Prompt',
+        description:
+          'Global system prompt appended to every chat session (like ~/.claude/CLAUDE.md).',
+        variables: [],
+        defaultValue: DEFAULT_GLOBAL_SYSTEM_PROMPT,
       },
     ],
   },
@@ -475,14 +458,25 @@ export function getMagicPromptItemId(key: keyof MagicPrompts): string {
 }
 
 const CLAUDE_MODEL_OPTIONS: { value: MagicPromptModel; label: string }[] = [
-  { value: 'claude-opus-4-7', label: 'Opus 4.7' },
-  { value: 'claude-opus-4-6', label: 'Opus 4.6' },
+  { value: 'claude-opus-4-7[1m]', label: 'Opus 4.7 (1M)' },
+  { value: 'claude-opus-4-6[1m]', label: 'Opus 4.6 (1M)' },
   { value: 'sonnet', label: 'Sonnet 4.6' },
   { value: 'haiku', label: 'Haiku' },
 ]
 
-const CODEX_MODEL_OPTIONS: { value: MagicPromptModel; label: string }[] =
-  codexModelOptions.map(o => ({ value: o.value, label: o.label }))
+const CODEX_MODEL_OPTIONS: { value: MagicPromptModel; label: string }[] = [
+  { value: 'gpt-5.5', label: 'GPT 5.5' },
+  { value: 'gpt-5.5-fast', label: 'GPT 5.5 Fast' },
+  { value: 'gpt-5.4', label: 'GPT 5.4' },
+  { value: 'gpt-5.4-fast', label: 'GPT 5.4 Fast' },
+  { value: 'gpt-5.4-mini', label: 'GPT 5.4 Mini' },
+  { value: 'gpt-5.4-mini-fast', label: 'GPT 5.4 Mini Fast' },
+  ...codexModelOptions
+    .filter(
+      o => !['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini'].includes(o.value) // Already listed above
+    )
+    .map(o => ({ value: o.value as MagicPromptModel, label: o.label })),
+]
 
 interface MagicPromptsPaneProps {
   searchTargetPromptKey?: keyof MagicPrompts | null
@@ -818,6 +812,14 @@ export const MagicPromptsPane: React.FC<MagicPromptsPaneProps> = ({
     })
   }, [preferences, patchPreferences])
 
+  const handleApplyCodexFastDefaults = useCallback(() => {
+    if (!preferences) return
+    patchPreferences.mutate({
+      magic_prompt_models: CODEX_FAST_DEFAULT_MAGIC_PROMPT_MODELS,
+      magic_prompt_backends: CODEX_DEFAULT_MAGIC_PROMPT_BACKENDS,
+    })
+  }, [preferences, patchPreferences])
+
   const handleApplyOpenCodeDefaults = useCallback(() => {
     if (!preferences) return
     patchPreferences.mutate({
@@ -876,6 +878,15 @@ export const MagicPromptsPane: React.FC<MagicPromptsPaneProps> = ({
           className="h-7 text-xs"
         >
           Codex Defaults
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleApplyCodexFastDefaults}
+          disabled={!installedBackends.includes('codex')}
+          className="h-7 text-xs"
+        >
+          Codex (Fast) Defaults
         </Button>
         <Button
           variant="outline"

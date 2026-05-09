@@ -51,7 +51,7 @@ export function resolveApprovalLabel(
     backend ?? sessionBackend ?? preferences.default_backend ?? 'claude'
   const backendDefaultModel =
     resolvedBackend === 'codex'
-      ? (preferences.selected_codex_model ?? 'gpt-5.4')
+      ? (preferences.selected_codex_model ?? 'gpt-5.5')
       : resolvedBackend === 'pi'
         ? (preferences.selected_pi_model ?? 'pi/openai/gpt-5.5')
         : resolvedBackend === 'opencode'
@@ -59,6 +59,7 @@ export function resolveApprovalLabel(
           : resolvedBackend === 'cursor'
             ? (preferences.selected_cursor_model ?? 'cursor/auto')
             : (preferences.selected_model ?? null)
+
   const resolvedModel = model ?? backendDefaultModel
   if (!resolvedModel && !resolvedBackend) return null
   const modelLabel = resolvedModel
